@@ -1,0 +1,15 @@
+{
+  "id": "balanced",
+  "label": "均衡档",
+  "render_scale": 1.0,
+  "max_fps": 60,
+  "msaa": 2,
+  "fxaa": false,
+  "glow": true,
+  "particles": true,
+  "probes": true,
+  "extra_lights": true,
+  "detail_prop_range": 150.0,
+  "focus_fps": 10,
+  "minimized_fps": 5
+}

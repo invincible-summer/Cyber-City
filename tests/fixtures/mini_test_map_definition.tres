@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="MapDefinition" format=3]
+
+[ext_resource type="Script" path="res://scripts/maps/map_definition.gd" id="1_n70f2"]
+
+[resource]
+script = ExtResource("1_n70f2")
+map_id = "test_mini_map"
+display_name = "极小测试地图（不进生产注册表）"
+scene_path = "res://tests/fixtures/mini_test_map.tscn"
+default_anchor = "test_anchor"
+camera_bounds = AABB(-10, 1.5, -10, 20, 8, 20)
+anchor_names = PackedStringArray("test_anchor")
+lighting_profile_id = "none"

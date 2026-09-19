@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/wall_brick.png" id="1_j505p"]
+
+[resource]
+albedo_texture = ExtResource("1_j505p")
+roughness = 0.95

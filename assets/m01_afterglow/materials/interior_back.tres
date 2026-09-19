@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/interior_shelf.png" id="1_yrw20"]
+
+[resource]
+albedo_texture = ExtResource("1_yrw20")
+roughness = 0.9
+emission_enabled = true
+emission_energy_multiplier = 0.6
+emission_texture = ExtResource("1_yrw20")

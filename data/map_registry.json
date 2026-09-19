@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "maps": [
+    {
+      "map_id": "m01_afterglow",
+      "definition_path": "res://maps/m01_afterglow/map_definition.tres"
+    }
+  ]
+}

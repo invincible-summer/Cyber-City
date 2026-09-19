@@ -1,0 +1,6 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/roof_gravel.png" id="1_n5eig"]
+
+[resource]
+albedo_texture = ExtResource("1_n5eig")

@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/asphalt.png" id="1_4ogp7"]
+
+[resource]
+albedo_texture = ExtResource("1_4ogp7")
+roughness = 0.96

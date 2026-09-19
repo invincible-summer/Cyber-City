@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/backdrop_facade.png" id="1_tfler"]
+
+[resource]
+albedo_color = Color(0.6, 0.7, 0.82, 1)
+albedo_texture = ExtResource("1_tfler")
+roughness = 0.9
+emission_enabled = true
+emission_energy_multiplier = 0.55
+emission_texture = ExtResource("1_tfler")

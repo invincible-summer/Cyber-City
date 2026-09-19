@@ -1,0 +1,9 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/asphalt.png" id="1_3tro0"]
+
+[resource]
+albedo_color = Color(0.6, 0.64, 0.72, 1)
+albedo_texture = ExtResource("1_3tro0")
+metallic = 0.22
+roughness = 0.3

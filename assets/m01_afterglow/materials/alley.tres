@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/alley_ground.png" id="1_nn8xn"]
+
+[resource]
+albedo_texture = ExtResource("1_nn8xn")
+roughness = 0.85

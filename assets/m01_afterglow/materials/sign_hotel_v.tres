@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/signs/hotel_v.png" id="1_4ifho"]
+
+[resource]
+albedo_texture = ExtResource("1_4ifho")
+roughness = 0.6
+emission_enabled = true
+emission_energy_multiplier = 2.2
+emission_texture = ExtResource("1_4ifho")

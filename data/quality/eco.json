@@ -1,0 +1,15 @@
+{
+  "id": "eco",
+  "label": "经济档",
+  "render_scale": 0.8,
+  "max_fps": 30,
+  "msaa": 0,
+  "fxaa": true,
+  "glow": false,
+  "particles": false,
+  "probes": false,
+  "extra_lights": false,
+  "detail_prop_range": 55.0,
+  "focus_fps": 10,
+  "minimized_fps": 5
+}

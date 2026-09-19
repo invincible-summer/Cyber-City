@@ -1,0 +1,12 @@
+# Godot 4
+.godot/
+*.translation
+build/
+
+# 系统与临时
+Thumbs.db
+.DS_Store
+*.log
+
+# 大体积录屏不入库；截图与性能 CSV 作为证据保留
+artifacts/videos/

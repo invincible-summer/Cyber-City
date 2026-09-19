@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="MapDefinition" format=3]
+
+[ext_resource type="Script" path="res://scripts/maps/map_definition.gd" id="1_qhxa6"]
+
+[resource]
+script = ExtResource("1_qhxa6")
+map_id = "m01_afterglow"
+display_name = "余晖街区"
+scene_path = "res://maps/m01_afterglow/map.tscn"
+default_anchor = "street_view"
+camera_exclusion_bounds = Array[AABB]([AABB(-30.3, 0, 39.7, 18.6, 15.5, 17.6), AABB(-26.3, 0, 21.7, 14.6, 12, 17.6), AABB(-34.3, 0, 5.7, 22.6, 18.5, 14.6), AABB(-24.3, 0, -22.3, 12.6, 10, 16.6), AABB(-38.3, 0, -40.3, 26.6, 24.5, 16.6), AABB(-28.3, 0, -54.3, 16.6, 13.5, 14.6), AABB(11.7, 0, 41.7, 15.6, 10.5, 15.6), AABB(11.7, 0, 1.7, 14.6, 14.5, 11.6), AABB(11.7, 0, -13.3, 18.6, 20.5, 13.6), AABB(11.7, 0, -28.3, 12.6, 9, 13.6), AABB(11.7, 0, -46.3, 22.6, 26.5, 16.6), AABB(11.7, 0, -56.3, 13.6, 12.5, 8.6), AABB(30.5, 0, 17.7, 13.8, 8.5, 18.6), AABB(-15.3, 0, -66.8, 2.7, 10.6, 4.4), AABB(12.3, 0, -66.8, 2.7, 10.6, 4.4), AABB(-20.3, 9.8, -67.1, 46.6, 4.2, 7.6), AABB(13.3, 0, -61.4, 12.2, 10.7, 4.4), AABB(-12.5, 0, -60.9, 25, 3.8, 1)])
+anchor_names = PackedStringArray("street_view", "repair_shop_view", "station_view")
+lighting_profile_id = "m01_dusk_v1"

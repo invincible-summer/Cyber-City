@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/m01_afterglow/textures/wall_bluegray.png" id="1_a1d3w"]
+
+[resource]
+albedo_texture = ExtResource("1_a1d3w")
+roughness = 0.95
