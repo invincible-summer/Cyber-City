@@ -28,7 +28,14 @@ func get_quality_ids() -> Array[String]:
 
 
 func set_quality(id: String) -> void:
-	if not profiles.has(id) or id == current_quality:
+	if not profiles.has(id):
+		return
+	_apply_profile(id, true)
+
+
+## 自动化测量用：强制应用（跳过相同档位短路），保证档位确定生效。
+func force_apply(id: String) -> void:
+	if not profiles.has(id):
 		return
 	_apply_profile(id, true)
 

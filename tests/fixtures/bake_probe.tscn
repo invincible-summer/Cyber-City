@@ -1,0 +1,44 @@
+[gd_scene format=4 uid="uid://b4k4vdouxckni"]
+
+[ext_resource type="LightmapGIData" uid="uid://c4f61hx5j1noa" path="res://tests/fixtures/bake_probe_lightmap.res" id="1_7wjs4"]
+[ext_resource type="Texture2D" uid="uid://b82dp802fr55q" path="res://assets/m01_afterglow/textures/wall_warm.png" id="1_jr0dh"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_7wjs4"]
+albedo_texture = ExtResource("1_jr0dh")
+roughness = 0.93
+
+[sub_resource type="ArrayMesh" id="ArrayMesh_i11i3"]
+lightmap_size_hint = Vector2i(512, 512)
+_surfaces = [{
+"aabb": AABB(-3, 0, -3, 6, 4, 6),
+"attribute_data": PackedByteArray("pHB9v6RwfT8AAAAAAAAAAKRwfT+kcH0/AADgPAAAAACkcH0/pHB9vwAA4DwAAAA9pHB9v6RwfT8AAAAAAAAAAKRwfT+kcH2/AADgPAAAAD2kcH2/pHB9vwAAAAAAAAA9pHB9PwAAAIAAAOA8AAAAAKRwfb8AAACAAABgPQAAAACkcH2/w/WovwAAYD0AAAA9pHB9PwAAAIAAAOA8AAAAAKRwfb/D9ai/AABgPQAAAD2kcH0/w/WovwAA4DwAAAA9pHB9vwAAAIAAAGA9AAAAAKRwfT8AAACAAACoPQAAAACkcH0/w/WovwAAqD0AAAA9pHB9vwAAAIAAAGA9AAAAAKRwfT/D9ai/AACoPQAAAD2kcH2/w/WovwAAYD0AAAA9pHB9PwAAAIAAAKg9AAAAAKRwfT8AAACAAADgPQAAAACkcH0/w/WovwAA4D0AAAA9pHB9PwAAAIAAAKg9AAAAAKRwfT/D9ai/AADgPQAAAD2kcH0/w/WovwAAqD0AAAA9pHB9vwAAAIAAAOA9AAAAAKRwfb8AAACAAAAMPgAAAACkcH2/w/WovwAADD4AAAA9pHB9vwAAAIAAAOA9AAAAAKRwfb/D9ai/AAAMPgAAAD2kcH2/w/WovwAA4D0AAAA9"),
+"format": 34359738423,
+"material": SubResource("StandardMaterial3D_7wjs4"),
+"primitive": 3,
+"uv_scale": Vector4(0, 0, 0, 0),
+"vertex_count": 30,
+"vertex_data": PackedByteArray("AABAwAAAgEAAAEBAAABAQAAAgEAAAEBAAABAQAAAgEAAAEDAAABAwAAAgEAAAEBAAABAQAAAgEAAAEDAAABAwAAAgEAAAEDAAABAQAAAAAAAAEBAAABAQAAAAAAAAEDAAABAQAAAgEAAAEDAAABAQAAAAAAAAEBAAABAQAAAgEAAAEDAAABAQAAAgEAAAEBAAABAwAAAAAAAAEDAAABAwAAAAAAAAEBAAABAwAAAgEAAAEBAAABAwAAAAAAAAEDAAABAwAAAgEAAAEBAAABAwAAAgEAAAEDAAABAwAAAAAAAAEBAAABAQAAAAAAAAEBAAABAQAAAgEAAAEBAAABAwAAAAAAAAEBAAABAQAAAgEAAAEBAAABAwAAAgEAAAEBAAABAQAAAAAAAAEDAAABAwAAAAAAAAEDAAABAwAAAgEAAAEDAAABAQAAAAAAAAEDAAABAwAAAgEAAAEDAAABAQAAAgEAAAEDA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA")
+}]
+
+[node name="BakeProbe" type="Node3D" unique_id=1929034585]
+
+[node name="BakedWorld" type="LightmapGI" parent="." unique_id=899073388]
+light_data = ExtResource("1_7wjs4")
+
+[node name="StaticGeometry" type="Node3D" parent="BakedWorld" unique_id=216112404]
+
+[node name="ProbeMesh" type="MeshInstance3D" parent="BakedWorld" unique_id=757260282]
+mesh = SubResource("ArrayMesh_i11i3")
+
+[node name="@DirectionalLight3D@2" type="DirectionalLight3D" parent="." unique_id=2031443299]
+transform = Transform3D(0.8660254, -0.40957603, 0.28678823, 0, 0.57357645, 0.81915206, -0.5, -0.7094065, 0.49673176, 0, 0, 0)
+light_energy = 2.0
+light_bake_mode = 1
+
+[node name="@OmniLight3D@3" type="OmniLight3D" parent="." unique_id=1665183654]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, 0)
+light_energy = 3.0
+light_bake_mode = 1
+omni_range = 8.0
+
+[node name="CameraAnchors" type="Marker3D" parent="." unique_id=1921314534]

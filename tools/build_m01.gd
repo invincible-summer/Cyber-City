@@ -93,9 +93,9 @@ func _mk_materials() -> void:
 	mats["metal_teal"] = _flat(Color(0.3, 0.62, 0.6), 0.5, 0.3)
 	mats["metal_orange"] = _flat(Color(0.82, 0.43, 0.33), 0.55, 0.3)
 	mats["glass_dark"] = _flat(Color(0.15, 0.19, 0.25), 0.15, 0.15)
-	mats["lit_warm"] = _emis(Color(0.98, 0.74, 0.45), Color(0.98, 0.71, 0.42), 1.5, 0.35)
+	mats["lit_warm"] = _emis(Color(0.98, 0.74, 0.45), Color(1.0, 0.74, 0.42), 2.2, 0.35)
 	mats["lit_cool"] = _emis(Color(0.72, 0.81, 0.92), Color(0.68, 0.78, 0.9), 1.05, 0.3)
-	mats["glass_shop"] = _emis(Color(0.4, 0.32, 0.22), Color(0.95, 0.7, 0.42), 1.2, 0.25)
+	mats["glass_shop"] = _emis(Color(0.5, 0.4, 0.28), Color(1.0, 0.75, 0.45), 1.8, 0.25)
 	mats["interior_back"] = _tex_emis("interior_shelf", 0.9, 0.6)
 	mats["asphalt"] = _tex_mat("asphalt", 0.96)
 	mats["asphalt_wet"] = _tex_mat_dark("asphalt", 0.3, 0.22, Color(0.6, 0.64, 0.72), 0.3)
@@ -210,7 +210,7 @@ func _build_static_geometry(root: Node3D) -> void:
 	_repair_shop(mb)
 	_station(mb)
 
-	var mesh := mb.commit(mats, "%s/baked_static.res" % MESH_DIR)
+	var mesh := mb.commit(mats, "%s/baked_static.res" % MESH_DIR, Vector2i(2048, 2048))
 	_total_tris += mb.tri_count()
 	print("static: tris=", mb.tri_count(), " surf=", mesh.get_surface_count(), " uv2_used=%.3f uv2_max_y=%.3f overflow=%d" % [mb.packer.utilization(), mb.packer.max_y(), mb.packer.overflow_count])
 	if mb.packer.overflow_count > 0:
@@ -232,7 +232,7 @@ func _build_props(root: Node3D) -> void:
 	_alley_props(mb)
 	_plaza_props(mb)
 	_station_area_props(mb)
-	var mesh := mb.commit(mats, "%s/baked_props.res" % MESH_DIR)
+	var mesh := mb.commit(mats, "%s/baked_props.res" % MESH_DIR, Vector2i(512, 512))
 	_total_tris += mb.tri_count()
 	print("props: tris=", mb.tri_count(), " surf=", mesh.get_surface_count())
 	var mi := MeshInstance3D.new()
@@ -529,7 +529,7 @@ func _shopfront(mb: GL.MeshBuilder, front: String, spec: Dictionary, shop: Dicti
 	var signface_uv2 := Vector2((a1 - a0) * 18.0 / GL.ATLAS_PX, (sign_y1 - sign_y0) * 18.0 / GL.ATLAS_PX)
 	_quad_axis(mb, sign_mat, axis, s_out + out_dir * 0.01, a0 - 0.1, a1 + 0.1, sign_y0 + 0.08, sign_y1 - 0.08, out_dir, signface_uv2)
 	var light_pos := Vector3(wall_c + out_dir * -1.2, 1.9, (a0 + a1) / 2) if axis == "x" else Vector3((a0 + a1) / 2, 1.9, wall_c + out_dir * -1.2)
-	lights_spec.append(_omni(light_pos, Color(1, 0.72, 0.45), 2.8, 6.5))
+	lights_spec.append(_omni(light_pos, Color(1, 0.72, 0.45), 4.0, 8.0))
 	# 雨棚
 	if shop.get("awning", false):
 		var aw_out := wall_c + out_dir * 1.5
@@ -619,8 +619,8 @@ func _repair_shop(mb: GL.MeshBuilder) -> void:
 		var zz := lerpf(19.8, 35.2, s)
 		mb.box("metal_dark", Vector3(x0 - 2.25, 3.0, zz - 0.03), Vector3(x0 - 2.1, 4.05, zz + 0.03), 0.7, 18.0)
 	# 店内暖光 + 招牌光
-	lights_spec.append(_omni(Vector3(x0 + 1.5, 2.6, 25.5), Color(1, 0.78, 0.5), 5.5, 9.0))
-	lights_spec.append(_omni(Vector3(x0 + 1.2, 2.6, 33.0), Color(1, 0.72, 0.45), 3.5, 7.0))
+	lights_spec.append(_omni(Vector3(x0 + 1.5, 2.6, 25.5), Color(1, 0.78, 0.5), 7.5, 11.0))
+	lights_spec.append(_omni(Vector3(x0 + 1.2, 2.6, 33.0), Color(1, 0.72, 0.45), 5.0, 9.0))
 	lights_spec.append(_omni(Vector3(x0 - 1.2, 4.9, 27.5), Color(1, 0.68, 0.4), 2.2, 8.0))
 	exclusions.append(AABB(Vector3(x0 - 2.5, 0, z0 - 0.3), Vector3(x1 - x0 + 2.8, h + 0.5, z1 - z0 + 0.6)))
 
@@ -702,7 +702,7 @@ func _street_furniture(mb: GL.MeshBuilder) -> void:
 			continue  # 避开横道
 		var west := i % 2 == 0
 		var head := GL.streetlight(mb, -8.6 if west else 8.6, z, 1 if west else -1, 0, KEYS)
-		lights_spec.append(_omni(head, Color(1, 0.78, 0.52), 4.2, 9.0))
+		lights_spec.append(_omni(head, Color(1, 0.78, 0.52), 5.5, 11.0))
 	# 电杆（东便道，北半段）
 	for z in [-46.0, -26.0, -6.0]:
 		mb.cylinder("wood", Vector3(9.8, 0.15, z), 0.13, 7.2, 8, 0.6, 20.0)
@@ -829,7 +829,7 @@ func _build_lighting(root: Node3D) -> void:
 	var sun := DirectionalLight3D.new()
 	sun.name = "DuskSun"
 	sun.light_color = Color(1.0, 0.71, 0.5)
-	sun.light_energy = 2.3
+	sun.light_energy = 2.9
 	sun.light_bake_mode = Light3D.BAKE_STATIC
 	sun.transform = Transform3D(Basis(), Vector3.ZERO).looking_at(Vector3(0.52, -0.16, 0.4).normalized(), Vector3.UP)
 	lighting.add_child(sun)
@@ -920,7 +920,7 @@ func _build_backdrop(root: Node3D) -> void:
 	mb.bulb("bulb_warm", Vector3(tx, 48.6, tz), 0.5)
 	# 大地面（不烘焙）
 	mb.box("ground_far", Vector3(-260, -0.06, -260), Vector3(260, -0.04, 260), 1.0 / 36.0, 0.0, 4)
-	var mesh := mb.commit(mats, "%s/backdrop.res" % MESH_DIR)
+	var mesh := mb.commit(mats, "%s/backdrop.res" % MESH_DIR, Vector2i(64, 64))
 	_total_tris += mb.tri_count()
 	var mi := MeshInstance3D.new()
 	mi.name = "BackdropMesh"
@@ -945,9 +945,9 @@ func _build_environment(root: Node3D) -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.9
+	env.ambient_light_energy = 1.15
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.06
+	env.tonemap_exposure = 1.18
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.42, 0.47, 0.56)
 	env.fog_density = 0.0055
@@ -1094,7 +1094,7 @@ func _build_fixture() -> void:
 	var mb := GL.MeshBuilder.new()
 	mb.box("concrete_plain", Vector3(-12, 0, -12), Vector3(12, 0.2, 12), 0.4, 20.0)
 	mb.box("wall_warm", Vector3(-4, 0.2, -6), Vector3(4, 4.0, -4), 0.4, 20.0)
-	var mesh := mb.commit(mats, "res://tests/fixtures/mini_test_map_mesh.res")
+	var mesh := mb.commit(mats, "res://tests/fixtures/mini_test_map_mesh.res", Vector2i(256, 256))
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	root.add_child(mi)

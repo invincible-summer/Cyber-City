@@ -157,8 +157,7 @@ func set_quality(id: String, label_text: String) -> void:
 
 func set_busy(busy: bool, text: String = "") -> void:
 	busy_label.text = text if busy else ""
-	if busy:
-		menu_panel.visible = true
+	menu_panel.visible = busy
 
 
 func set_loading_progress(progress: float) -> void:

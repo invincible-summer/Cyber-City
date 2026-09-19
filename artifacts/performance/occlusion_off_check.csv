@@ -1,0 +1,3 @@
+run_id,map_id,quality,renderer,build_type,engine_version,window_width,window_height,render_scale,frame_cap,average_fps,frame_interval_p50_ms,frame_interval_p95_ms,frame_interval_p99_ms,stutter_over_100ms_count,draw_calls_peak,map_node_count,process_working_set_mib,gpu_memory_mib,resource_load_ms,activation_ms,notes
+eco_m01_r0_20260920T01:41:53,m01_afterglow,eco,mobile,project_run,4.7.2-stable (official),1920,1080,0.8,30,29.99,33.33,33.33,33.33,1,7,50,N/A,161.0,744.0,15.0,"gpu_memory 为引擎估计;工作集需外部测量;遮挡剔除 关闭"
+eco_m01_r1_20260920T01:42:53,m01_afterglow,eco,mobile,project_run,4.7.2-stable (official),1920,1080,0.8,30,30.00,33.33,33.33,33.33,0,6,50,N/A,161.0,744.0,15.0,"gpu_memory 为引擎估计;工作集需外部测量;遮挡剔除 关闭"

@@ -317,7 +317,7 @@ class MeshBuilder:
 			total += vs.size() / 3
 		return total
 
-	func commit(materials: Dictionary, path: String) -> ArrayMesh:
+	func commit(materials: Dictionary, path: String, lightmap_hint: Vector2i = Vector2i(512, 512)) -> ArrayMesh:
 		_flush()
 		var mesh := ArrayMesh.new()
 		for key in _order:
@@ -332,6 +332,9 @@ class MeshBuilder:
 			var mat = materials.get(key)
 			if mat != null:
 				mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
+		# LightmapGI 只烘焙设置了 lightmap_size_hint 的网格（文档要求 UV2 + texture size）
+		if lightmap_hint.x > 0 and lightmap_hint.y > 0:
+			mesh.lightmap_size_hint = lightmap_hint
 		if not path.is_empty():
 			var err := ResourceSaver.save(mesh, path)
 			if err != OK:

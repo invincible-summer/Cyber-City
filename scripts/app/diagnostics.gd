@@ -63,9 +63,9 @@ func end_sampling() -> Dictionary:
 	var sorted := deltas.duplicate()
 	sorted.sort()
 	stats["avg_fps"] = deltas.size() / total if total > 0.0 else 0.0
-	stats["p50_ms"] = sorted[int(sorted.size() * 0.50)]
-	stats["p95_ms"] = sorted[int(mini(sorted.size() - 1, int(sorted.size() * 0.95)))]
-	stats["p99_ms"] = sorted[int(mini(sorted.size() - 1, int(sorted.size() * 0.99)))]
+	stats["p50_ms"] = sorted[int(sorted.size() * 0.50)] * 1000.0
+	stats["p95_ms"] = sorted[int(mini(sorted.size() - 1, int(sorted.size() * 0.95)))] * 1000.0
+	stats["p99_ms"] = sorted[int(mini(sorted.size() - 1, int(sorted.size() * 0.99)))] * 1000.0
 	stats["stutter_over_100ms"] = stutter
 	return stats
 

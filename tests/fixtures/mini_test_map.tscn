@@ -11,6 +11,7 @@ albedo_texture = ExtResource("2_igvfr")
 roughness = 0.93
 
 [sub_resource type="ArrayMesh" id="ArrayMesh_1p4vk"]
+lightmap_size_hint = Vector2i(256, 256)
 _surfaces = [{
 "aabb": AABB(-12, 0, -12, 24, 0.2, 24),
 "attribute_data": PackedByteArray("mpmZwJqZmUAAAAAAAAAAAJqZmUCamZlAAACgPQAAAACamZlAmpmZwAAAoD0AAAA+mpmZwJqZmUAAAAAAAAAAAJqZmUCamZnAAACgPQAAAD6amZnAmpmZwAAAAAAAAAA+mpmZwJqZmcAAAKA9AAAAAJqZmUCamZnAAAAgPgAAAACamZlAmpmZQAAAID4AAAA+mpmZwJqZmcAAAKA9AAAAAJqZmUCamZlAAAAgPgAAAD6amZnAmpmZQAAAoD0AAAA+mpmZQAAAAIAAAI0+AAAAAJqZmcAAAACAAAC1PgAAAACamZnACtejvQAAtT4AAIA6mpmZQAAAAIAAAI0+AAAAAJqZmcAK16O9AAC1PgAAgDqamZlACtejvQAAjT4AAIA6mpmZwAAAAIAAALU+AAAAAJqZmUAAAACAAADdPgAAAACamZlACtejvQAA3T4AAIA6mpmZwAAAAIAAALU+AAAAAJqZmUAK16O9AADdPgAAgDqamZnACtejvQAAtT4AAIA6mpmZQAAAAIAAAN0+AAAAAJqZmUAAAACAAIACPwAAAACamZlACtejvQCAAj8AAIA6mpmZQAAAAIAAAN0+AAAAAJqZmUAK16O9AIACPwAAgDqamZlACtejvQAA3T4AAIA6mpmZwAAAAIAAgAI/AAAAAJqZmcAAAACAAIAWPwAAAACamZnACtejvQCAFj8AAIA6mpmZwAAAAIAAgAI/AAAAAJqZmcAK16O9AIAWPwAAgDqamZnACtejvQCAAj8AAIA6"),
@@ -35,16 +36,16 @@ _surfaces = [{
 background_mode = 1
 background_color = Color(0.2, 0.24, 0.3, 1)
 
-[node name="MiniTestMap" type="Node3D" unique_id=1372554690]
+[node name="MiniTestMap" type="Node3D" unique_id=163949236]
 script = ExtResource("1_ww08p")
 
-[node name="@MeshInstance3D@33" type="MeshInstance3D" parent="." unique_id=85691393]
+[node name="@MeshInstance3D@33" type="MeshInstance3D" parent="." unique_id=758793067]
 mesh = SubResource("ArrayMesh_1p4vk")
 
-[node name="Environment" type="WorldEnvironment" parent="." unique_id=1013845077]
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=1227027236]
 environment = SubResource("Environment_181mj")
 
-[node name="CameraAnchors" type="Node3D" parent="." unique_id=432426062]
+[node name="CameraAnchors" type="Node3D" parent="." unique_id=895997907]
 
-[node name="test_anchor" type="Marker3D" parent="CameraAnchors" unique_id=1806336687]
+[node name="test_anchor" type="Marker3D" parent="CameraAnchors" unique_id=1824123294]
 transform = Transform3D(0.7071068, 0, 0.70710677, 0, 1, 0, -0.7071068, 0, 0.70710677, 8, 2, 8)

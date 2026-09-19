@@ -19,6 +19,8 @@ var _ui_hidden := false
 var _focus_throttled := false
 var _was_minimized := false
 var _perf_rows: Array = []
+## 自动化模式下跳过失焦/最小化节流，避免污染测量（交互验证另行人工进行）。
+var _automation_measure := false
 
 
 func _ready() -> void:
@@ -247,6 +249,8 @@ func _take_screenshot(diag_variant: bool) -> void:
 # ---------------- 焦点与最小化 ----------------
 
 func _notification(what: int) -> void:
+	if _automation_measure:
+		return  # 测量期间不应用节流（保证 60s 路线数据纯净）
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		_focus_throttled = true
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -258,6 +262,8 @@ func _notification(what: int) -> void:
 
 
 func _process(_delta: float) -> void:
+	if _automation_measure:
+		return
 	var minimized := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED
 	if minimized != _was_minimized:
 		_was_minimized = minimized
@@ -322,6 +328,11 @@ func _apply_override(root: Node, mat: Material) -> void:
 
 func _run_automation_perf(args: PackedStringArray) -> void:
 	await _await_map_ready()
+	tool_ui.set_visible_all(false)
+	(diagnostics.get_parent() as CanvasLayer).visible = false
+	_automation_measure = true
+	# 测量前重置用户配置，保证档位序列确定
+	DirAccess.remove_absolute("user://settings.cfg")
 	var tiers: Array[String] = _tier_args(args, ["eco", "balanced"])
 	var runs := 3
 	for i in range(args.size()):
@@ -335,10 +346,17 @@ func _run_automation_perf(args: PackedStringArray) -> void:
 	print("PERF warmup 15s …")
 	await get_tree().create_timer(15.0).timeout
 	for tier in tiers:
-		settings.set_quality(tier)
+		settings.force_apply(tier)
 		await get_tree().create_timer(2.0).timeout
 		for r in runs:
-			await _run_one_route(tier, r + 1)
+			var roots_now := get_tree().get_nodes_in_group("active_map_root")
+			if roots_now.is_empty():
+				printerr("PERF_ABORT: 活动地图为空（轮 ", r, "，档位 ", tier, "）")
+				_write_perf_csv()
+				get_tree().quit(1)
+				return
+			print("PERF route begin: tier=", tier, " r=", r, " max_fps=", Engine.max_fps, " map_nodes=", _count_nodes(roots_now[0]))
+			await _run_one_route(tier, r)
 	_write_perf_csv()
 	print("PERF_DONE")
 	get_tree().quit()
