@@ -11,3 +11,4 @@ default_anchor = "test_anchor"
 camera_bounds = AABB(-10, 1.5, -10, 20, 8, 20)
 anchor_names = PackedStringArray("test_anchor")
 lighting_profile_id = "none"
+capture_anchor_names = PackedStringArray()

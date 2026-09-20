@@ -13,6 +13,15 @@ var failures: Array[String] = []
 var checks := 0
 
 
+func _check(cond: bool, label: String) -> void:
+	checks += 1
+	if cond:
+		print("PASS: ", label)
+	else:
+		failures.append(label)
+		printerr("FAIL: ", label)
+
+
 func _init() -> void:
 	call_deferred("_run")
 
@@ -31,14 +40,12 @@ func _run() -> void:
 			"bake_status 枚举合法（%s）" % str(manifest.get("bake_status", "")))
 		var geom_now := _hash_files([
 			"maps/m01_afterglow/generated/map_generated.tscn",
-			"maps/m01_afterglow/generated/generated_spec.json",
 			"maps/m01_afterglow/meshes/baked_static.res",
 			"maps/m01_afterglow/meshes/baked_props.res",
 			"maps/m01_afterglow/meshes/backdrop.res",
 		])
 		var auth_now := _hash_files([
 			"maps/m01_afterglow/authored/authored_static.tscn",
-			"maps/m01_afterglow/authored/authored_spec.json",
 		])
 		var geom_ok: bool = geom_now == str(manifest.get("geometry_input_hash", ""))
 		var auth_ok: bool = auth_now == str(manifest.get("authored_input_hash", ""))
@@ -70,7 +77,7 @@ func _run() -> void:
 						for e in contract_errors:
 							print("VERIFY-CONTRACT: ", e)
 						# 烘焙缺失单独报告（verify 可在 bake 前运行）
-						var lm := inst._find_lightmap_gi(inst)
+						var lm: LightmapGI = inst._find_lightmap_gi(inst)
 						if lm == null or lm.light_data == null:
 							print("VERIFY: 烘焙数据未就绪（bake 前运行时预期）")
 							failures = failures.filter(func(f: String) -> bool: return not f.contains("运行时合同"))
@@ -124,11 +131,11 @@ func _check_authored_baseline(current_hash: String) -> void:
 func _hash_files(paths: Array) -> String:
 	var acc := ""
 	for p in paths:
-		var rel := p.trim_prefix("res://")
-		if not FileAccess.file_exists(p):
+		var rel: String = str(p).trim_prefix("res://")
+		if not FileAccess.file_exists(str(p)):
 			acc += rel + ":missing;"
 			continue
-		acc += rel + ":" + FileAccess.get_sha256(p) + ";"
+		acc += rel + ":" + FileAccess.get_sha256(str(p)) + ";"
 	return acc.sha256_text()
 
 

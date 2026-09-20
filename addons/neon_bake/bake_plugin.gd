@@ -168,51 +168,49 @@ func _fail(job_id: String, reason: String) -> void:
 # ============================ 前置/覆盖检查 ============================
 
 func _precheck(root: Node, lm: LightmapGI) -> Dictionary:
-	var mesh_count := 0
-	var uv2_count := 0
-	_visit_meshes(root, func(mi: MeshInstance3D) -> void:
-		mesh_count += 1
-		var mesh := mi.mesh
-		if mesh is ArrayMesh and mesh.get_surface_count() > 0:
-			var has_uv2 := true
-			for i in mesh.get_surface_count():
-				if not (mesh.surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2):
-					has_uv2 = false
-			if has_uv2:
-				uv2_count += 1)
-	if mesh_count == 0:
+	## GDScript lambda 按值捕获局部变量——计数必须走引用类型（字典）。
+	var acc := {"mesh_count": 0, "uv2_count": 0}
+	_visit_meshes(root, acc)
+	if int(acc["mesh_count"]) == 0:
 		return {"ok": false, "message": "场景内无网格"}
-	if uv2_count == 0:
+	if int(acc["uv2_count"]) == 0:
 		return {"ok": false, "message": "无网格带 UV2"}
-	print("NEON_BAKE: 前置检查 mesh_instances=%d 带UV2=%d" % [mesh_count, uv2_count])
+	print("NEON_BAKE: 前置检查 mesh_instances=%d 带UV2=%d" % [int(acc["mesh_count"]), int(acc["uv2_count"])])
 	return {"ok": true, "message": ""}
 
 
-func _visit_meshes(node: Node, fn: Callable) -> void:
+func _visit_meshes(node: Node, acc: Dictionary) -> void:
 	if node is MeshInstance3D:
-		fn.call(node)
+		var mi := node as MeshInstance3D
+		acc["mesh_count"] = int(acc["mesh_count"]) + 1
+		var mesh := mi.mesh
+		if mesh is ArrayMesh and (mesh as ArrayMesh).get_surface_count() > 0:
+			var has_uv2 := true
+			for i in (mesh as ArrayMesh).get_surface_count():
+				if not ((mesh as ArrayMesh).surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2):
+					has_uv2 = false
+			if has_uv2:
+				acc["uv2_count"] = int(acc["uv2_count"]) + 1
 	for c in node.get_children():
-		_visit_meshes(c, fn)
+		_visit_meshes(c, acc)
 
 
 func _expected_bake_users(root: Node) -> Array[String]:
-	## 应烘焙的网格资源路径（BakedWorld 子树、GI 静态、带 UV2 的唯一 mesh 资源）。
-	var found := {}
+	## 应烘焙的网格：LightmapGI 子树内 GI 静态、带 UV2 的 MeshInstance3D 的**节点路径**
+	## （LightmapGIData.get_user_path() 返回相对 LightmapGI 的节点路径）。
 	var lm := _find_lightmap(root)
 	if lm == null:
 		return []
-	_visit_bake_meshes(lm, found)
-	var out: Array[String] = []
-	for k in found:
-		out.append(str(k))
-	out.sort()
-	return out
+	var found: Array[String] = []
+	_visit_bake_meshes(lm, lm, found)
+	found.sort()
+	return found
 
 
-func _visit_bake_meshes(node: Node, found: Dictionary) -> void:
+func _visit_bake_meshes(node: Node, lm: LightmapGI, found: Array[String]) -> void:
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
-		if mi.gi_mode == GeometryInstance3D.GI_MODE_STATIC and mi.mesh != null and mi.mesh.resource_path != "":
+		if mi.gi_mode == GeometryInstance3D.GI_MODE_STATIC and mi.mesh != null:
 			var has_uv2 := false
 			if mi.mesh is ArrayMesh and (mi.mesh as ArrayMesh).get_surface_count() > 0:
 				has_uv2 = true
@@ -220,9 +218,11 @@ func _visit_bake_meshes(node: Node, found: Dictionary) -> void:
 					if not ((mi.mesh as ArrayMesh).surface_get_format(i) & Mesh.ARRAY_FORMAT_TEX_UV2):
 						has_uv2 = false
 			if has_uv2:
-				found[mi.mesh.resource_path] = true
+				var rel := str(lm.get_path_to(mi))
+				if not found.has(rel):
+					found.append(rel)
 	for c in node.get_children():
-		_visit_bake_meshes(c, found)
+		_visit_bake_meshes(c, lm, found)
 
 
 func _actual_bake_users(lm: LightmapGI) -> Array[String]:
@@ -239,6 +239,7 @@ func _actual_bake_users(lm: LightmapGI) -> Array[String]:
 
 
 func _diff_paths(expected: Array[String], actual: Array[String]) -> Array[String]:
+	## 节点路径口径直接对比。
 	var actual_set := {}
 	for p in actual:
 		actual_set[p] = true

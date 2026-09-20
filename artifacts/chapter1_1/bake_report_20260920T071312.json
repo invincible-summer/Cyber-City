@@ -1,0 +1,9 @@
+{
+  "detail": {},
+  "engine_version": "4.7.2-stable (official)",
+  "job_id": "bake-20260920T071307",
+  "reason": "前置检查失败: 场景内无网格",
+  "schema_version": 1,
+  "success": false,
+  "utc": "2026-09-20T07:13:12"
+}

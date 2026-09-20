@@ -166,16 +166,18 @@ class MeshBuilder:
 			var q2: Vector3 = q["c2"]
 			var q3: Vector3 = q["c3"]
 			if size.x <= 0.0 or size.y <= 0.0:
-				_push_tri(s, q0, q1, q2, n, uv1[0], uv1[1], uv1[2], Vector2.ZERO, Vector2.ZERO, Vector2.ZERO)
-				_push_tri(s, q0, q2, q3, n, uv1[0], uv1[2], uv1[3], Vector2.ZERO, Vector2.ZERO, Vector2.ZERO)
+				# Godot 正面为屏幕顺时针绕序；四角约定是"从法线侧看逆时针"，
+				# 因此输出时必须反转顶点序，正面才落在声明法线一侧。
+				_push_tri(s, q0, q2, q1, n, uv1[0], uv1[2], uv1[1], Vector2.ZERO, Vector2.ZERO, Vector2.ZERO)
+				_push_tri(s, q0, q3, q2, n, uv1[0], uv1[3], uv1[2], Vector2.ZERO, Vector2.ZERO, Vector2.ZERO)
 				continue
 			var rect := packer.alloc(size.x, size.y)
 			var r0 := rect.position
 			var r1 := Vector2(rect.position.x + rect.size.x, rect.position.y)
 			var r2 := rect.position + rect.size
 			var r3 := Vector2(rect.position.x, rect.position.y + rect.size.y)
-			_push_tri(s, q0, q1, q2, n, uv1[0], uv1[1], uv1[2], r0, r1, r2)
-			_push_tri(s, q0, q2, q3, n, uv1[0], uv1[2], uv1[3], r0, r2, r3)
+			_push_tri(s, q0, q2, q1, n, uv1[0], uv1[2], uv1[1], r0, r2, r1)
+			_push_tri(s, q0, q3, q2, n, uv1[0], uv1[3], uv1[2], r0, r3, r2)
 		_pending = []
 
 	## 轴对齐盒。a=min 角，b=max 角。uv_scale：每米 UV1 重复数；px_per_m：lightmap 密度（0 = 不烘焙）。

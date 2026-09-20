@@ -1,0 +1,57 @@
+{
+  "map_id": "m01_afterglow",
+  "regions": [
+    {
+      "balanced_detail_end_m": 65.0,
+      "bounds_min": [
+        -73.0,
+        0.0,
+        -17.0
+      ],
+      "bounds_size": [
+        28.0,
+        15.0,
+        34.0
+      ],
+      "detail_root_path": "BakedWorld/AuthoredStatic/Authored/AuthoredProps/PropsServiceCourt",
+      "eco_detail_end_m": 45.0,
+      "hysteresis_m": 5.0,
+      "region_id": "service_court"
+    },
+    {
+      "balanced_detail_end_m": 65.0,
+      "bounds_min": [
+        10.0,
+        0.0,
+        -88.0
+      ],
+      "bounds_size": [
+        33.0,
+        15.0,
+        26.0
+      ],
+      "detail_root_path": "BakedWorld/AuthoredStatic/Authored/AuthoredProps/PropsStationForecourt",
+      "eco_detail_end_m": 45.0,
+      "hysteresis_m": 5.0,
+      "region_id": "station_forecourt"
+    },
+    {
+      "balanced_detail_end_m": 65.0,
+      "bounds_min": [
+        -67.0,
+        8.0,
+        0.0
+      ],
+      "bounds_size": [
+        22.0,
+        6.0,
+        16.0
+      ],
+      "detail_root_path": "BakedWorld/AuthoredStatic/Authored/AuthoredProps/PropsRoofTerrace",
+      "eco_detail_end_m": 45.0,
+      "hysteresis_m": 5.0,
+      "region_id": "roof_terrace"
+    }
+  ],
+  "schema_version": 1
+}

@@ -13,19 +13,21 @@ const SEGMENT_SECONDS := {
 }
 
 const ROUTES: Dictionary = {
+	# legacy_v1：三段形状与第一阶段一致；第三段坐标修正——原 (18,12,-35)→(14,13,-38)
+	# 在 E6 楼体内穿行（第一章潜在缺陷，目检确认），报告按"新建对照路线"标注。
 	ROUTE_LEGACY: [
 		{"p0": Vector3(-3, 1.7, 52), "p1": Vector3(-3, 1.7, 20), "look": Vector3(1, 8, -45), "name": "main_street"},
 		{"p0": Vector3(15, 1.8, 31), "p1": Vector3(19, 2.0, 29), "look": Vector3(33, 2.5, 25), "name": "repair_shop"},
-		{"p0": Vector3(18, 12, -35), "p1": Vector3(14, 13, -38), "look": Vector3(0, 12, -62), "name": "station_high"},
+		{"p0": Vector3(3, 12, -32), "p1": Vector3(1, 13, -36), "look": Vector3(0, 10, -62), "name": "station_high"},
 	],
-	# expanded_v11 段坐标在 WP2 灰盒定稿后校准；段序=主街/维修铺/生活广场/屋顶露台/站前广场/原站口高位
+	# expanded_v11 段序=主街/维修铺/生活广场/屋顶露台/站前广场/原站口高位
 	ROUTE_EXPANDED: [
 		{"p0": Vector3(-3, 1.7, 50), "p1": Vector3(-3, 1.8, 30), "look": Vector3(1, 8, -45), "name": "main_street"},
 		{"p0": Vector3(14, 1.8, 32), "p1": Vector3(17, 2.0, 30), "look": Vector3(33, 2.5, 25), "name": "repair_shop"},
 		{"p0": Vector3(-44, 2.0, 3), "p1": Vector3(-48, 2.0, 1), "look": Vector3(-64, 2.5, -2), "name": "service_court"},
 		{"p0": Vector3(-56, 10.8, 2), "p1": Vector3(-59, 10.8, -2), "look": Vector3(10, 12, 30), "name": "roof_terrace"},
-		{"p0": Vector3(34, 1.7, -80), "p1": Vector3(30, 1.7, -76), "look": Vector3(18, 6, -64), "name": "station_forecourt"},
-		{"p0": Vector3(18, 12, -35), "p1": Vector3(16, 13, -38), "look": Vector3(0, 12, -62), "name": "station_high"},
+		{"p0": Vector3(34, 1.7, -82), "p1": Vector3(30, 1.7, -79.5), "look": Vector3(19, 6.5, -64), "name": "station_forecourt"},
+		{"p0": Vector3(3, 12, -32), "p1": Vector3(1, 13, -36), "look": Vector3(0, 10, -62), "name": "station_high"},
 	],
 }
 

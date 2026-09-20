@@ -33,7 +33,7 @@ var _video_mem_peak := 0.0
 var _saved_quality: Dictionary = {}
 var _saved_ambient: Dictionary = {}
 var _saved_camera_pose: CameraPose = null
-var _saved_vsync := true
+var _saved_vsync: DisplayServer.VSyncMode = DisplayServer.VSYNC_ENABLED
 var _saved_max_fps := 30
 var _invalid_reason := ""
 

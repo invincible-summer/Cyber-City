@@ -89,6 +89,12 @@ func _sign_main() -> void:
 	_label(vp.get_child(0), "SEABREEZE MART · 24H", Color(0.66, 0.85, 0.83), 28, 194, 8)
 	await _finish(vp, "convenience")
 
+	# 湾流洗衣（生活广场主招牌，chapter1-1 §3.3）
+	vp = _begin(1024, 256, Color(0.05, 0.1, 0.11), Color(0.5, 0.9, 0.88), 8, 4)
+	_label(vp.get_child(0), "湾 流 洗 衣", Color(0.78, 0.96, 0.94), 150, 0, 58)
+	_label(vp.get_child(0), "BAYFLOW LAUNDRY · 自助/取送", Color(0.6, 0.84, 0.82), 26, 196, 8)
+	await _finish(vp, "laundry")
+
 	# 岬角咖啡
 	vp = _begin(768, 256, Color(0.12, 0.08, 0.06), Color(0.95, 0.78, 0.55), 6, 4)
 	_label(vp.get_child(0), "岬 角 咖 啡", Color(0.97, 0.86, 0.66), 120, 0, 58)

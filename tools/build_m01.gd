@@ -95,9 +95,10 @@ func _mk_materials() -> void:
 	mats["glass_dark"] = _flat(Color(0.15, 0.19, 0.25), 0.15, 0.15)
 	mats["lit_warm"] = _emis(Color(0.98, 0.74, 0.45), Color(1.0, 0.74, 0.42), 2.2, 0.35)
 	mats["lit_cool"] = _emis(Color(0.72, 0.81, 0.92), Color(0.68, 0.78, 0.9), 1.05, 0.3)
-	mats["glass_shop"] = _emis(Color(0.5, 0.4, 0.28), Color(1.0, 0.75, 0.45), 1.8, 0.25)
+	mats["glass_shop"] = _emis(Color(0.5, 0.4, 0.28), Color(1.0, 0.75, 0.45), 0.55, 0.25)
 	mats["interior_back"] = _tex_emis("interior_shelf", 0.9, 0.6)
 	mats["asphalt"] = _tex_mat("asphalt", 0.96)
+	mats["asphalt_patch"] = _tex_mat_dark("asphalt", 0.92, 0.0, Color(0.42, 0.44, 0.5), 0.0)
 	mats["asphalt_wet"] = _tex_mat_dark("asphalt", 0.3, 0.22, Color(0.6, 0.64, 0.72), 0.3)
 	mats["pavement"] = _tex_mat("pavement", 0.95)
 	mats["plaza"] = _tex_mat("plaza_paving", 0.9)
@@ -107,7 +108,7 @@ func _mk_materials() -> void:
 	mats["rubber"] = _flat(Color(0.09, 0.09, 0.1), 0.9)
 	mats["marking"] = _flat(Color(0.72, 0.71, 0.66), 0.9)
 	mats["steel_station"] = _flat(Color(0.4, 0.48, 0.54), 0.5, 0.55)
-	mats["bulb_warm"] = _emis(Color(1.0, 0.78, 0.5), Color(1.0, 0.75, 0.45), 3.2, 0.5)
+	mats["bulb_warm"] = _emis(Color(1.0, 0.78, 0.5), Color(1.0, 0.75, 0.45), 1.2, 0.5)
 	(mats["bulb_warm"] as StandardMaterial3D).cull_disabled = true
 	mats["wire"] = _flat(Color(0.09, 0.09, 0.1), 0.85)
 	mats["ground_far"] = _tex_mat_dark("asphalt", 1.0, 0.0, Color(0.55, 0.6, 0.7), 0.0)
@@ -116,9 +117,9 @@ func _mk_materials() -> void:
 	mats["backdrop3"] = _tex_emis("backdrop_facade", 0.9, 0.55, Color(0.6, 0.7, 0.82))
 	mats["poster"] = _tex_mat("poster", 0.9)
 	mats["door_dark"] = _flat(Color(0.12, 0.13, 0.15), 0.6)
-	mats["lamp_lens"] = _emis(Color(1.0, 0.82, 0.6), Color(1.0, 0.79, 0.55), 2.6, 0.5)
+	mats["lamp_lens"] = _emis(Color(1.0, 0.82, 0.6), Color(1.0, 0.79, 0.55), 2.2, 0.5)
 	(mats["lamp_lens"] as StandardMaterial3D).cull_disabled = true
-	mats["sign_repair"] = _sign("signs/repair_main", 3.0)
+	mats["sign_repair"] = _sign("signs/repair_main", 4.2)
 	mats["sign_station"] = _sign("signs/station_main", 3.2)
 	mats["sign_convenience"] = _sign("signs/convenience", 2.8)
 	mats["sign_cafe"] = _sign("signs/cafe", 2.4)
@@ -198,7 +199,9 @@ func _build_generated_root() -> Node3D:
 
 
 func _build_static_geometry(root: Node3D) -> void:
-	var lm := LightmapGI.new()
+	# 普通容器：真正的 LightmapGI 由 assemble_m01 挂在 map.tscn 根部，
+	# 生成层内部不得再嵌 LightmapGI（嵌套会劫持子树网格的光照采样）。
+	var lm := Node3D.new()
 	lm.name = "BakedWorld"
 	root.add_child(lm)
 	var sg := _node3d("StaticGeometry", lm)
@@ -247,7 +250,7 @@ func _build_props(root: Node3D) -> void:
 
 func _ground_and_street(mb: GL.MeshBuilder) -> void:
 	# 主街（含桥下延伸到 z=-66）
-	mb.box("asphalt", Vector3(-6, 0, -66), Vector3(6, 0.02, 60), 1.0 / 12.0, 22.0, 4)
+	mb.box("asphalt", Vector3(-6, 0, -66), Vector3(6, 0.02, 60), 1.0 / 7.0, 22.0, 4)
 	# 两侧人行道 + 路缘
 	mb.box("pavement", Vector3(-11, 0, -60), Vector3(-6.3, 0.15, 60), 1.0 / 2.4, 20.0)
 	mb.box("pavement", Vector3(6.3, 0, -60), Vector3(11, 0.15, 60), 1.0 / 2.4, 20.0)
@@ -264,6 +267,17 @@ func _ground_and_street(mb: GL.MeshBuilder) -> void:
 	_wet_patch(mb, Vector3(-2.5, 0.035, -20), 3.6, 6.5)
 	_wet_patch(mb, Vector3(2.8, 0.035, 9), 2.6, 4.2)
 	_wet_patch(mb, Vector3(-26, 0.115, -1), 3.0, 2.0)
+	# 道路修补（沥青补丁 + 接缝，1.1 精修）
+	for rp in [{"c": Vector3(-1.8, 0.03, 8.0), "w": 3.4, "h": 5.5}, {"c": Vector3(2.2, 0.03, -33.0), "w": 4.2, "h": 6.0}, {"c": Vector3(-2.0, 0.03, 38.0), "w": 3.0, "h": 4.0}]:
+		var r: Dictionary = rp
+		var c: Vector3 = r["c"]
+		var rw: float = r["w"]
+		var rh: float = r["h"]
+		var patch_uv := Vector2(rw * 16.0 / GL.ATLAS_PX, rh * 16.0 / GL.ATLAS_PX)
+		mb.quad("asphalt_patch", c + Vector3(-rw / 2, 0, rh / 2), c + Vector3(rw / 2, 0, rh / 2), c + Vector3(rw / 2, 0, -rh / 2), c + Vector3(-rw / 2, 0, -rh / 2), Vector3.UP, [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)], patch_uv)
+		# 接缝线（两侧）
+		mb.box("marking", Vector3(c.x - rw / 2 - 0.06, 0.045, c.z - rh / 2), Vector3(c.x - rw / 2 + 0.06, 0.055, c.z + rh / 2), 0.8, 16.0)
+		mb.box("marking", Vector3(c.x + rw / 2 - 0.06, 0.045, c.z - rh / 2), Vector3(c.x + rw / 2 + 0.06, 0.055, c.z + rh / 2), 0.8, 16.0)
 	# 标线
 	_markings(mb)
 	# 井盖
@@ -311,14 +325,14 @@ func _building_specs() -> Array[Dictionary]:
 		# 西侧楼群（front +x，临街面 x=-12）
 		{"id": "W1", "x0": -30, "z0": 40, "x1": -12, "z1": 57, "h": 15, "wall": "wall_bluegray", "pattern": "grid", "floor_h": 3.0, "bay": 3.1, "win_w": 1.35, "win_h": 1.6, "front": "+x", "balcony": [1, 3], "seed": 1101, "shop": {"a0": 44, "a1": 52, "mat": "sign_soda", "awning": true, "depth": 3.0}},
 		{"id": "W2", "x0": -26, "z0": 22, "x1": -12, "z1": 39, "h": 11.5, "wall": "wall_warm", "pattern": "grid", "floor_h": 3.1, "bay": 3.2, "win_w": 1.5, "win_h": 1.7, "front": "+x", "seed": 1102, "shop": {"a0": 24, "a1": 36, "mat": "sign_convenience", "awning": true, "depth": 3.5}},
-		{"id": "W3", "x0": -34, "z0": 6, "x1": -12, "z1": 20, "h": 18, "wall": "wall_panel", "pattern": "grid", "floor_h": 3.0, "bay": 3.4, "win_w": 1.6, "win_h": 1.7, "front": "+x", "seed": 1103, "tall": true},
+		{"id": "W3", "x0": -34, "z0": 6, "x1": -12, "z1": 20, "h": 18, "wall": "wall_panel", "pattern": "grid", "floor_h": 3.0, "bay": 3.4, "win_w": 1.6, "win_h": 1.7, "front": "+x", "seed": 1103, "tall": true, "shop": {"a0": 9, "a1": 15, "mat": "sign_cafe", "awning": true, "depth": 3.0}},
 		# 侧巷 z -6..6
 		{"id": "W5", "x0": -24, "z0": -22, "x1": -12, "z1": -6, "h": 9.5, "wall": "wall_brick", "pattern": "grid", "floor_h": 3.1, "bay": 2.8, "win_w": 1.25, "win_h": 1.55, "front": "+x", "seed": 1105, "shop": {"a0": -20.5, "a1": -14.5, "mat": "sign_noodle", "awning": true, "depth": 2.8}, "shop2": {"a0": -13.5, "a1": -7.5, "mat": "sign_electronics", "awning": false, "depth": 2.6}},
 		{"id": "W6", "x0": -38, "z0": -40, "x1": -12, "z1": -24, "h": 24, "wall": "wall_bluegray", "pattern": "grid", "floor_h": 3.0, "bay": 3.3, "win_w": 1.4, "win_h": 1.6, "front": "+x", "seed": 1106, "tall": true, "tank": true},
 		{"id": "W7", "x0": -28, "z0": -54, "x1": -12, "z1": -40, "h": 13, "wall": "wall_warm", "pattern": "grid", "floor_h": 3.2, "bay": 3.0, "win_w": 1.4, "win_h": 1.6, "front": "+x", "seed": 1107},
 		# 东侧楼群（front -x，临街面 x=12）
 		{"id": "E1", "x0": 12, "z0": 42, "x1": 27, "z1": 57, "h": 10, "wall": "wall_warm", "pattern": "grid", "floor_h": 3.2, "bay": 3.0, "win_w": 1.45, "win_h": 1.65, "front": "-x", "seed": 1201, "shop": {"a0": 44, "a1": 54, "mat": "sign_cafe", "awning": true, "depth": 3.2}},
-		{"id": "E3", "x0": 12, "z0": 2, "x1": 26, "z1": 13, "h": 14, "wall": "wall_bluegray", "pattern": "grid", "floor_h": 3.0, "bay": 3.1, "win_w": 1.4, "win_h": 1.6, "front": "-x", "balcony": [2], "seed": 1203},
+		{"id": "E3", "x0": 12, "z0": 2, "x1": 26, "z1": 13, "h": 14, "wall": "wall_bluegray", "pattern": "grid", "floor_h": 3.0, "bay": 3.1, "win_w": 1.4, "win_h": 1.6, "front": "-x", "balcony": [2], "seed": 1203, "shop": {"a0": 4, "a1": 10, "mat": "sign_soda", "awning": false, "depth": 2.8}},
 		{"id": "E4", "x0": 12, "z0": -13, "x1": 30, "z1": 0, "h": 20, "wall": "wall_panel", "pattern": "band", "floor_h": 3.3, "bay": 3.0, "win_w": 1.5, "win_h": 1.5, "front": "-x", "seed": 1204, "tall": true, "trim": true},
 		{"id": "E5", "x0": 12, "z0": -28, "x1": 24, "z1": -15, "h": 8.5, "wall": "wall_brick", "pattern": "grid", "floor_h": 3.1, "bay": 2.9, "win_w": 1.3, "win_h": 1.55, "front": "-x", "seed": 1205, "shop": {"a0": -26, "a1": -21, "mat": "sign_pharmacy", "awning": false, "depth": 2.6}, "vsign": {"a": -18, "mat": "sign_hotel_v"}},
 		{"id": "E6", "x0": 12, "z0": -46, "x1": 34, "z1": -30, "h": 26, "wall": "wall_bluegray", "pattern": "band", "floor_h": 3.2, "bay": 3.4, "win_w": 1.6, "win_h": 1.5, "front": "-x", "seed": 1206, "tall": true},
@@ -417,7 +431,13 @@ func _windows_for_face(mb: GL.MeshBuilder, spec: Dictionary, face: String, is_fr
 				lit = 1
 			elif r < 0.38:
 				lit = 2
-			GL.window_unit(mb, axis, wall_c, out_dir, a, y, float(spec["win_w"]), float(spec["win_h"]), KEYS, lit)
+			if r >= 0.9:
+				# 固定配置差异：关闭的遮板窗（约 10%），打破机械规律
+				var sh_in := wall_c + out_dir * 0.02
+				var sh_out := wall_c + out_dir * 0.1
+				_strip(mb, "metal_teal", axis, minf(sh_in, sh_out), maxf(sh_in, sh_out), a - float(spec["win_w"]) * 0.5 - 0.06, a + float(spec["win_w"]) * 0.5 + 0.06, y - 0.06, y + float(spec["win_h"]) + 0.06)
+			else:
+				GL.window_unit(mb, axis, wall_c, out_dir, a, y, float(spec["win_w"]), float(spec["win_h"]), KEYS, lit)
 			var balcony: Array = spec.get("balcony", [])
 			if balcony.has(floor_idx) and bay_idx % 2 == 0 and is_front:
 				GL.balcony(mb, axis, wall_c, out_dir, a - float(spec["bay"]) * 0.55, a + float(spec["bay"]) * 0.55, y - 0.05, 1.15, KEYS)
@@ -589,6 +609,15 @@ func _repair_shop(mb: GL.MeshBuilder) -> void:
 	mb.box("metal_dark", Vector3(x0 - 0.06, 0, 31.3), Vector3(x0 + 0.1, 4.2, 35.3), 0.9, 22.0)
 	for yy in range(1, 5):
 		_strip(mb, "metal_teal", "x", x0 - 0.07, x0 - 0.02, 31.3, 35.3, float(yy), float(yy) + 0.12)
+	# 卷帘门导轨（1.1 近景）
+	mb.box("metal_dark", Vector3(x0 - 0.12, 0, 31.15), Vector3(x0 + 0.02, 4.3, 31.35), 0.8, 18.0)
+	mb.box("metal_dark", Vector3(x0 - 0.12, 0, 35.25), Vector3(x0 + 0.02, 4.3, 35.45), 0.8, 18.0)
+	# 门口近景件：灭火器 + 油桶 ×2 + 灭火器箱
+	mb.cylinder("metal_orange", Vector3(x0 - 0.35, 0.55, 30.6), 0.09, 0.85, 8, 0.7, 16.0)
+	mb.box("metal_orange", Vector3(x0 - 0.42, 1.05, 30.5), Vector3(x0 - 0.28, 1.14, 30.7), 0.8, 14.0)
+	mb.box("metal_dark", Vector3(x0 - 0.5, 0.85, 30.45), Vector3(x0 - 0.2, 1.25, 30.75), 0.7, 14.0)
+	for i in 2:
+		mb.cylinder("metal_teal", Vector3(x0 - 0.6, 0.47 + i * 0.0, 32.4 + i * 0.75), 0.29, 0.94, 10, 0.55, 18.0)
 	# 店内：深处工作台/货架/轮胎
 	var back_c := x0 + 4.6
 	var int_uv2 := Vector2(14.0 * 20.0 / GL.ATLAS_PX, 3.9 * 20.0 / GL.ATLAS_PX)
@@ -618,9 +647,9 @@ func _repair_shop(mb: GL.MeshBuilder) -> void:
 	for s in [0.15, 0.5, 0.85]:
 		var zz := lerpf(19.8, 35.2, s)
 		mb.box("metal_dark", Vector3(x0 - 2.25, 3.0, zz - 0.03), Vector3(x0 - 2.1, 4.05, zz + 0.03), 0.7, 18.0)
-	# 店内暖光 + 招牌光
-	lights_spec.append(_omni(Vector3(x0 + 1.5, 2.6, 25.5), Color(1, 0.78, 0.5), 7.5, 11.0))
-	lights_spec.append(_omni(Vector3(x0 + 1.2, 2.6, 33.0), Color(1, 0.72, 0.45), 5.0, 9.0))
+	# 店内暖光 + 招牌光（小空间低能量，避免漫反射裁剪成整片白）
+	lights_spec.append(_omni(Vector3(x0 + 1.5, 2.6, 25.5), Color(1, 0.78, 0.5), 2.2, 10.0))
+	lights_spec.append(_omni(Vector3(x0 + 1.2, 2.6, 33.0), Color(1, 0.72, 0.45), 1.8, 9.0))
 	lights_spec.append(_omni(Vector3(x0 - 1.2, 4.9, 27.5), Color(1, 0.68, 0.4), 2.2, 8.0))
 	exclusions.append(AABB(Vector3(x0 - 2.5, 0, z0 - 0.3), Vector3(x1 - x0 + 2.8, h + 0.5, z1 - z0 + 0.6)))
 
@@ -734,9 +763,16 @@ func _alley_props(mb: GL.MeshBuilder) -> void:
 	fan_poss.append(GL.ac_unit(mb, Vector3(-30, 2.6, 5.4), Vector3(0, 0, 1), KEYS))
 	fan_poss.append(GL.ac_unit(mb, Vector3(-24, 3.8, -5.4), Vector3(0, 0, -1), KEYS))
 	fan_poss.append(GL.ac_unit(mb, Vector3(-38, 2.8, -5.4), Vector3(0, 0, -1), KEYS))
-	# 竖向落水管
+	# 竖向落水管（1.1：起止支架）
 	for x in [-13.0, -21.0, -33.0, -43.0]:
 		mb.cylinder("metal_dark", Vector3(x, 0.1, 5.7), 0.07, 9.4, 6, 0.8, 14.0)
+		# 顶部弯头 + 底部排水口 + 中部支架
+		mb.box("metal_dark", Vector3(x - 0.16, 9.4, 5.55), Vector3(x + 0.16, 9.56, 5.85), 0.8, 14.0)
+		mb.box("metal_dark", Vector3(x - 0.12, 0.02, 5.58), Vector3(x + 0.12, 0.14, 5.82), 0.8, 14.0)
+		mb.box("metal_dark", Vector3(x - 0.11, 4.6, 5.62), Vector3(x + 0.11, 4.72, 5.78), 0.8, 12.0)
+	# 电表箱 ×3（墙面半嵌入盒体）
+	for mp in [Vector3(-15.5, 1.4, 5.82), Vector3(-28.5, 1.5, 5.82), Vector3(-36.0, 1.35, -5.82)]:
+		mb.box("metal_teal", mp + Vector3(-0.25, 0, -0.06), mp + Vector3(0.25, 1.3, 0.06), 0.7, 16.0)
 	# 海报（贴巷道两侧墙面）
 	var poster_uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
 	for pd in [{"p": Vector3(-16.5, 1.7, 5.86), "n": 1}, {"p": Vector3(-27.5, 1.4, 5.86), "n": 1}, {"p": Vector3(-35.2, 1.9, -5.86), "n": -1}]:
@@ -752,10 +788,7 @@ func _alley_props(mb: GL.MeshBuilder) -> void:
 	mb.box("wood", Vector3(-41.2, 0.9, -3.2), Vector3(-40.9, 1.2, -2.8), 0.7, 20.0)
 	for i in 2:
 		mb.cylinder("rubber", Vector3(-14.2, 0.22 + i * 0.38, -4.8), 0.5, 0.32, 12, 0.9, 16.0)
-	# 巷尾栅栏门
-	mb.box("metal_dark", Vector3(-45.2, 0.1, -4.5), Vector3(-45.05, 2.4, 4.5), 0.7, 18.0)
-	for i in 6:
-		mb.box("metal_dark", Vector3(-45.15, 0.1, -4.2 + i * 1.6), Vector3(-44.9, 2.3, -4.0 + i * 1.6), 0.8, 14.0)
+	# 巷尾已开放连通生活广场（1.1：移除原栅栏门，由 authored 层拱门承接空间转换）
 	# 巷内小灯（罩灯）
 	mb.box("metal_dark", Vector3(-21.5, 3.6, 5.7), Vector3(-21.1, 3.9, 6.05), 0.8, 16.0)
 	lights_spec.append(_omni(Vector3(-21.3, 3.3, 5.6), Color(1, 0.8, 0.55), 1.8, 5.0))
@@ -783,9 +816,8 @@ func _plaza_props(mb: GL.MeshBuilder) -> void:
 	# 街边围桩（广场临街一侧）
 	for i in 5:
 		mb.cylinder("metal_dark", Vector3(12.6, 0.17, 17.5 + i * 4.5), 0.09, 0.75, 8, 0.8, 16.0)
-	# 串灯（广场上方，两段垂弧）
-	_string_lights(mb, Vector3(13.2, 4.6, 18.5), Vector3(31.5, 4.6, 33.5), 0.85)
-	_string_lights(mb, Vector3(13.2, 4.6, 33.5), Vector3(31.5, 4.6, 18.5), 0.85)
+	# 串灯（广场上方，单段横跨，避开维修铺机位正前）
+	_string_lights(mb, Vector3(13.5, 5.0, 19.5), Vector3(31.5, 5.0, 32.5), 0.5)
 	# 咖啡外摆（E1 门前，属于街边但用同一网格）
 	GL.bench(mb, 14.2, 46.0, -PI / 2, KEYS)
 	mb.box("wood", Vector3(13.6, 0.15, 45.2), Vector3(14.1, 0.72, 45.7), 0.7, 20.0)
@@ -802,7 +834,7 @@ func _string_lights(mb: GL.MeshBuilder, p0: Vector3, p1: Vector3, sag: float) ->
 		var t := float(i) / n
 		var pos := p0.lerp(p1, t) + Vector3.DOWN * (sag * 4.0 * t * (1.0 - t))
 		# 灯泡
-		mb.bulb("bulb_warm", pos + Vector3.DOWN * 0.1, 0.055)
+		mb.bulb("bulb_warm", pos + Vector3.DOWN * 0.1, 0.045)
 		# 拉线段
 		var mid := (prev + pos) / 2.0
 		var length := prev.distance_to(pos)
@@ -950,7 +982,8 @@ func _save_spec() -> void:
 		"anchors": {
 			"street_view": {"pos": [-3, 1.7, 52], "look": [1, 8, -45]},
 			"repair_shop_view": {"pos": [15, 1.8, 31], "look": [33, 2.5, 25]},
-			"station_view": {"pos": [18, 12, -35], "look": [0, 12, -62]},
+			# 1.1 正式新姿态：原 (18,12,-35) 落在 E6 楼体禁入体积内（第一章缺陷），移至街道上空
+			"station_view": {"pos": [2, 13, -30], "look": [0, 10, -62]},
 		},
 	}
 	var f := FileAccess.open(SPEC_PATH, FileAccess.WRITE)

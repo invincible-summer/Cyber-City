@@ -1,0 +1,25 @@
+{
+  "actual_baked_user_paths": [
+    "../Backdrop/BackdropMesh",
+    "AuthoredStatic/Authored/AuthoredGeometry/AuthoredStaticMesh",
+    "AuthoredStatic/Authored/AuthoredProps/PropsRoofTerrace",
+    "AuthoredStatic/Authored/AuthoredProps/PropsServiceCourt",
+    "AuthoredStatic/Authored/AuthoredProps/PropsStationForecourt",
+    "GeneratedStatic/Generated/BakedWorld/Props/BakedProps",
+    "GeneratedStatic/Generated/BakedWorld/StaticGeometry/BakedStatic"
+  ],
+  "authored_input_hash": "da759812469cb9ca8e2031800799e55a25090995c37bb6706db36b1d847c5862",
+  "bake_finished_utc": "2026-09-20T12:30:51",
+  "bake_job_id": "bake-20260920T123027",
+  "bake_status": "succeeded",
+  "build_id": "local-20260920T123011",
+  "content_revision": "1.1.0",
+  "engine_version": "4.7.2-stable (official)",
+  "expected_baked_user_paths": [],
+  "font_source_hash": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "geometry_input_hash": "4fda66362965840c5ffce6f2d8309df641416a6a2ee5c602e8e393567203b405",
+  "lighting_input_hash": "3b2bc7e0a4cec13f2ab82e8ce7e0a668a0dada2fa928440b91148f1e4e26c2aa",
+  "map_id": "m01_afterglow",
+  "outputs": [],
+  "schema_version": 1.0
+}

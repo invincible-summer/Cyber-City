@@ -70,24 +70,54 @@ func _build_map() -> Node3D:
 	# BakedWorld：LightmapGI 下双实例（生成层 + 精修层）
 	var lm := LightmapGI.new()
 	lm.name = "BakedWorld"
+	# 只挂全新空数据：旧烘焙数据的 user 路径属于旧场景结构，编辑器加载时会按旧路径
+	# 调和节点名并自我延续（X2 重复节点死循环）。烘焙有效性由清单输入指纹判定（FIX-08），
+	# 烘焙插件会预保存空数据并在成功后写入真实结果。
+	const BAKED_DATA := "res://maps/m01_afterglow/baked/map_lightmap.res"
+	DirAccess.make_dir_recursive_absolute(BAKED_DATA.get_base_dir())
+	var fresh_data := LightmapGIData.new()
+	var save_err := ResourceSaver.save(fresh_data, BAKED_DATA)
+	if save_err == OK:
+		lm.light_data = load(BAKED_DATA)
+	else:
+		push_warning("assemble: 空 LightmapGIData 预保存失败 err=%d（烘焙前运行时无静态光照）" % save_err)
 	root.add_child(lm)
 	var gen_inst := Node3D.new()
 	gen_inst.name = "GeneratedStatic"
 	gen_inst.set_scene_instance_load_placeholder(false)
 	var gen_scene := load(GENERATED_SCENE) as PackedScene
 	if gen_scene != null:
+		# 展平嵌入：不用 PackedScene 实例引用。Godot 4.7 的 LightmapGI 烘焙会对
+		# "LightmapGI 子树内的实例"复制出 X2 副本网格并写回场景（上一轮遗留 bug）。
+		# 展平后节点路径与原实例结构一致（Generated/BakedWorld/…），烘焙行为与首版相同。
+		var gen_container := Node3D.new()
+		gen_container.name = "Generated"
+		gen_inst.add_child(gen_container)
 		var gi := gen_scene.instantiate()
-		gi.name = "Generated"
-		gen_inst.add_child(gi)
+		gen_container.add_child(gi)
+		while gi.get_child_count() > 0:
+			var c := gi.get_child(0)
+			gi.remove_child(c)
+			gen_container.add_child(c)
+		gi.free()
+		gen_container.owner = root
 		gen_inst.owner = root
 	lm.add_child(gen_inst)
 	if ResourceLoader.exists(AUTHORED_SCENE):
 		var auth_inst := Node3D.new()
 		auth_inst.name = "AuthoredStatic"
+		var auth_container := Node3D.new()
+		auth_container.name = "Authored"
+		auth_inst.add_child(auth_container)
 		var auth_scene := load(AUTHORED_SCENE) as PackedScene
 		var ai := auth_scene.instantiate()
-		ai.name = "Authored"
-		auth_inst.add_child(ai)
+		auth_container.add_child(ai)
+		while ai.get_child_count() > 0:
+			var c := ai.get_child(0)
+			ai.remove_child(c)
+			auth_container.add_child(c)
+		ai.free()
+		auth_container.owner = root
 		auth_inst.owner = root
 		lm.add_child(auth_inst)
 	else:
@@ -156,12 +186,12 @@ func _build_environment() -> WorldEnvironment:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.15
+	env.ambient_light_energy = 1.4  # 1.1 目检后提升环境基底，消除大面积死黑
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.18
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.42, 0.47, 0.56)
-	env.fog_density = 0.0055
+	env.fog_density = 0.0045
 	env.fog_sky_affect = 0.5
 	env.glow_enabled = true  # 运行时由画质档开关
 	env.glow_intensity = 0.6
@@ -289,20 +319,19 @@ func _save_definition() -> void:
 # ============================ 构建清单（§9.3） ============================
 
 func _write_manifest() -> void:
+	## 指纹只覆盖参与烘焙的输入（几何/UV2/层级/材质/灯光/环境都在场景文件内）；
+	## 规格 JSON（锚点/禁入体积等非烘焙数据）与清单自身、烘焙输出不入列（§9.3）。
 	var geometry_files := [
 		"maps/m01_afterglow/generated/map_generated.tscn",
-		"maps/m01_afterglow/generated/generated_spec.json",
 		"maps/m01_afterglow/meshes/baked_static.res",
 		"maps/m01_afterglow/meshes/baked_props.res",
 		"maps/m01_afterglow/meshes/backdrop.res",
 	]
 	var authored_files := [
 		"maps/m01_afterglow/authored/authored_static.tscn",
-		"maps/m01_afterglow/authored/authored_spec.json",
 	]
 	var lighting_files := [
 		"maps/m01_afterglow/generated/map_generated.tscn",
-		"maps/m01_afterglow/generated/generated_spec.json",
 	]
 	var combined_geom := _hash_files(geometry_files)
 	var combined_light := _hash_files(lighting_files)
@@ -310,6 +339,20 @@ func _write_manifest() -> void:
 	var font_hash := ""
 	if FileAccess.file_exists(FONT_SOURCE):
 		font_hash = FileAccess.get_sha256(FONT_SOURCE)
+	# 烘焙状态保留规则：输入指纹与上一轮一致且曾 succeeded → 保留；不一致 → stale（FIX-08）
+	var prev := _load_json(MANIFEST_PATH)
+	var inputs_unchanged: bool = not prev.is_empty() \
+		and str(prev.get("geometry_input_hash", "")) == combined_geom \
+		and str(prev.get("authored_input_hash", "")) == combined_auth \
+		and str(prev.get("lighting_input_hash", "")) == combined_light
+	var bake_status := "pending"
+	var bake_job_id := ""
+	var actual_paths: Array = prev.get("actual_baked_user_paths", []) if inputs_unchanged else []
+	if inputs_unchanged and str(prev.get("bake_status", "")) == "succeeded":
+		bake_status = "succeeded"
+		bake_job_id = str(prev.get("bake_job_id", ""))
+	elif not prev.is_empty():
+		bake_status = "stale"
 	var manifest := {
 		"schema_version": 1,
 		"map_id": "m01_afterglow",
@@ -320,10 +363,10 @@ func _write_manifest() -> void:
 		"lighting_input_hash": combined_light,
 		"authored_input_hash": combined_auth,
 		"font_source_hash": font_hash,
-		"bake_job_id": "",
-		"bake_status": "pending",
+		"bake_job_id": bake_job_id,
+		"bake_status": bake_status,
 		"expected_baked_user_paths": [],
-		"actual_baked_user_paths": [],
+		"actual_baked_user_paths": actual_paths,
 		"outputs": [],
 	}
 	var f := FileAccess.open(MANIFEST_PATH, FileAccess.WRITE)
@@ -336,11 +379,11 @@ func _hash_files(paths: Array) -> String:
 	## 文件清单指纹：路径 + sha256 串联后再哈希。清单自身与烘焙输出不入列（避免循环依赖）。
 	var acc := ""
 	for p in paths:
-		var rel := p.trim_prefix("res://")
-		if not FileAccess.file_exists(p):
+		var rel: String = str(p).trim_prefix("res://")
+		if not FileAccess.file_exists(str(p)):
 			acc += rel + ":missing;"
 			continue
-		acc += rel + ":" + FileAccess.get_sha256(p) + ";"
+		acc += rel + ":" + FileAccess.get_sha256(str(p)) + ";"
 	return acc.sha256_text()
 
 
@@ -382,8 +425,13 @@ func _v3(arr: Variant) -> Vector3:
 	return Vector3.ZERO
 
 
-func _set_all_owners(node: Node, root: Node) -> void:
+func _set_all_owners(node: Node, root: Node, inside_instance: bool = false) -> void:
+	## 实例根设 owner（属于外层场景），实例内部节点保持 owner=实例根（属于子场景）。
+	## 若把 owner 设到实例内部节点，pack 会把它们写成"实例覆盖子节点"，
+	## 编辑器加载时与子场景自身节点叠加复制（X2 网格来源）。
 	for child in node.get_children():
-		if child != root:
+		if child == root:
+			continue
+		if not inside_instance:
 			child.owner = root
-			_set_all_owners(child, root)
+		_set_all_owners(child, root, inside_instance or not str(child.scene_file_path).is_empty())

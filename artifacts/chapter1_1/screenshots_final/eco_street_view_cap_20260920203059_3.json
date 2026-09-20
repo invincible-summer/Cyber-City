@@ -1,0 +1,48 @@
+{
+  "anchor_id": "street_view",
+  "build_id": "",
+  "camera_pose": {
+    "anchor_id": "street_view",
+    "far_m": 700.0,
+    "fov_deg": 60.0,
+    "keep_aspect": 1,
+    "map_id": "m01_afterglow",
+    "near_m": 0.300000011920929,
+    "position": [
+      -3.0,
+      1.70000004768372,
+      52.0
+    ],
+    "quaternion": [
+      0.0323886759579182,
+      -0.0205946080386639,
+      0.000667524000164121,
+      0.999262928962708
+    ]
+  },
+  "content_revision": "1.1.0",
+  "effective_state": {
+    "aa_mode": "fxaa",
+    "focused": true,
+    "frame_cap": 30,
+    "glow_enabled": false,
+    "minimized": false,
+    "occlusion_enabled": true,
+    "particle_emitter_count": 0,
+    "probe_count": 0,
+    "profile_id": "eco",
+    "render_scale": 0.800000011920929,
+    "renderer": "mobile",
+    "runtime_fill_count": 0
+  },
+  "engine_version": "4.7.2-stable (official)",
+  "gpu_adapter": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+  "image_height": 1080,
+  "image_width": 1920,
+  "label": "eco_street_view",
+  "map_id": "m01_afterglow",
+  "profile_id": "eco",
+  "request_id": 3,
+  "schema_version": 1,
+  "utc_time": "2026-09-20T12:31:00"
+}

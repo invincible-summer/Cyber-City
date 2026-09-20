@@ -169,9 +169,15 @@ func _on_map_loading(map_id: StringName, _tx: int, stage: StringName, progress: 
 	loading_overlay.visible = true
 	var stage_text := "地图加载中…"
 	match String(stage):
-		"unloading": stage_text = "卸载旧地图…"
-		"resource_loading": stage_text = "地图资源加载中… %d%%" % int(clampf(progress, 0.0, 1.0) * 100.0) if progress >= 0.0 else "地图资源加载中…"
-		"activating": stage_text = "激活地图…"
+		"unloading":
+			stage_text = "卸载旧地图…"
+		"resource_loading":
+			if progress >= 0.0:
+				stage_text = "地图资源加载中… %d%%" % int(clampf(progress, 0.0, 1.0) * 100.0)
+			else:
+				stage_text = "地图资源加载中…"
+		"activating":
+			stage_text = "激活地图…"
 	loading_label.text = stage_text
 	camera_ctl.set_input_enabled(false)
 	tool_ui.set_busy(true, stage_text)
@@ -191,7 +197,7 @@ func _on_map_loaded(map_id: StringName, _tx: int) -> void:
 	var poses := {}
 	for anchor_id in map_root.get_anchor_ids():
 		poses[anchor_id] = map_root.get_anchor_pose(anchor_id)
-	var contract := map_manager.get_camera_contract()
+	var contract: Dictionary = map_manager.get_camera_contract()
 	camera_ctl.set_anchor_poses(poses, contract.get("default_anchor", &""))
 	tool_ui.set_anchor_hint(camera_ctl._anchor_order)
 	_refresh_bookmark_menu()
@@ -260,7 +266,7 @@ func _on_bookmark_delete(bookmark_id: String) -> void:
 
 
 func _refresh_bookmark_menu() -> void:
-	var map_id := map_manager.get_current_map_id()
+	var map_id: StringName = map_manager.get_current_map_id()
 	tool_ui.set_bookmarks(bookmarks.list_bookmarks(map_id))
 
 
