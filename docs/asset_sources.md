@@ -11,12 +11,16 @@
 | 墙面/路面/铺装/屋面等 12 张基础纹理 | `tools/gen_textures.gd`（headless） | FastNoiseLite 噪声 + 程序绘制；重复生成结果确定（固定种子） |
 | 10 张中文/双语招牌 | `tools/gen_signs.gd`（窗口运行 `tools/run_gen_signs.tscn`） | SubViewport 栅格化文字 |
 
-## 字体许可说明（重要）
+## 字体许可说明（chapter1-1 FIX-10 已固定）
 
-- 招牌纹理在**制作阶段**引用 Windows 系统字体（微软雅黑 / 黑体，通过 Godot `SystemFont` 按名称引用）栅格化为 PNG。
-- **字体文件本身未被复制进本项目**，运行时也不加载系统字体做招牌渲染（UI 文字经 SystemFont 按名称引用本机字体，属操作系统正常调用）。
-- 微软雅黑等系统字体许可**不允许**随项目再分发其文件。若本项目需要对外分发，应：换用可分发中文字体（如 OFL 许可的思源黑体），重跑 `tools/run_gen_signs.tscn` 与城市生成/烘焙流水线。
-- 当前定位：本机自用的第一阶段交付，不构成字体的再分发。
+- 招牌纹理在**制作阶段**使用项目内固定的可再分发字体栅格化为 PNG：
+  - **Noto Sans SC Regular**（思源黑体同源，Google Noto CJK）
+  - 文件：`assets/fonts/source/NotoSansSC-Regular.otf`
+  - 版本哈希（sha256）：`faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9`
+  - 许可：**SIL Open Font License 1.1**（全文见 `assets/fonts/source/LICENSE-OFL.txt`）；OFL 允许项目内保存与随制作管线再分发，招牌 PNG 为渲染产物。
+  - 来源：`https://github.com/notofonts/noto-cjk`（Sans/SubsetOTF/SC）
+- `tools/gen_signs.gd` 以 `FontFile` 加载上述文件生成招牌；同输入必产同输出，换目录可复现（不再依赖本机系统字体）。
+- UI 文字仍经 Godot `SystemFont` 按名称调用本机字体渲染（运行时行为，属操作系统正常调用，不随包分发字体文件）。
 
 ## 几何与材质
 

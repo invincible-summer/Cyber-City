@@ -1,41 +1,50 @@
-## 应用外壳：MapSlot + 相机 Rig + 工具 UI + 加载遮罩 + 诊断 + 设置。
-## 支持命令行自动化（项目运行）：`-- --shoot [--graybox] [--quality eco|balanced|both]`
-## 与 `-- --perf [--quality ...] [--runs N] [--occlusion on|off]`。
+## 应用外壳（组合根）：MapSlot + 相机 Rig + 工具 UI + 加载遮罩 + 诊断 + 设置 + 书签 + 截图 + 基准。
+## chapter1-1 §7：组合根初始化并注入 QualityController、ObserverCamera 与共享活动 guard。
+## 自动化（user args 在 `--` 后）：
+##   --shoot [--graybox] [--quality eco|balanced|both]
+##   --perf [--route legacy_v1|expanded_v11] [--quality ...] [--runs N] [--mode capped|headroom] [--occlusion on|off]
 extends Node3D
 
 const AUTO_MAP_ID := "m01_afterglow"
 
 var map_slot: Node3D
 var camera_rig: Node3D            # camera_controller.gd
-var camera_ctl                    # camera_controller 实例（弱类型以便测试替换）
+var camera_ctl                    # camera_controller 实例（弱类型便于测试替换）
 var tool_ui: CanvasLayer          # tool_ui.gd
 var loading_overlay: CanvasLayer
 var loading_label: Label
 var diagnostics                   # diagnostics.gd
-var settings                      # settings_manager.gd
+var settings                      # settings_manager.gd（QualityController 合同）
 var map_manager: Node             # map_manager.gd
+var capture_service: Node         # capture_service.gd
+var benchmark_runner: Node        # benchmark_runner.gd
+var activity_guard: ActivityGuard
+var bookmarks: BookmarkStore
 
 var _ui_hidden := false
-var _focus_throttled := false
-var _was_minimized := false
-var _perf_rows: Array = []
-## 自动化模式下跳过失焦/最小化节流，避免污染测量（交互验证另行人工进行）。
+## 基准期间为 true：主循环不应用失焦/最小化节流与整树暂停（基准自行检测失焦并中止）。
 var _automation_measure := false
+var _perf_config: Dictionary = {}
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_shell()
 
+	activity_guard = ActivityGuard.new()
+	bookmarks = BookmarkStore.new()
+
 	settings = get_node("SettingsManager")
 	map_manager = get_node("MapManager")
-	map_manager.setup(map_slot)
+	map_manager.setup(map_slot, activity_guard, settings, camera_ctl)
 	map_manager.load_registry_file("res://data/map_registry.json")
+	capture_service.setup(activity_guard, map_manager, settings, camera_ctl)
+	benchmark_runner.setup(activity_guard, map_manager, settings, camera_ctl, self)
 	_wire_signals()
 
 	_refresh_map_menu()
 	# 手动同步一次画质 UI（SettingsManager 在 _ready 中发信号时本节点尚未接线）
-	_on_quality_changed(settings.get_profile())
+	_on_quality_changed(&"eco", settings.get_effective_state())
 
 	var args := OS.get_cmdline_user_args()
 	if args.has("--perf"):
@@ -74,6 +83,7 @@ func _build_shell() -> void:
 	var ui_script := load("res://scripts/app/tool_ui.gd")
 	tool_ui = ui_script.new()
 	add_child(tool_ui)
+	(tool_ui.root_control as CanvasItem).add_to_group("capture_ui")
 
 	loading_overlay = CanvasLayer.new()
 	loading_overlay.layer = 20
@@ -92,6 +102,7 @@ func _build_shell() -> void:
 	loading_label.add_theme_color_override("font_color", Color(0.9, 0.94, 0.95, 1.0))
 	loading_overlay.add_child(loading_label)
 	add_child(loading_overlay)
+	loading_overlay.add_to_group("capture_ui")
 
 	var diag_layer := CanvasLayer.new()
 	diag_layer.layer = 11
@@ -99,23 +110,43 @@ func _build_shell() -> void:
 	var diag_script := load("res://scripts/app/diagnostics.gd")
 	diagnostics = diag_script.new()
 	diag_layer.add_child(diagnostics)
+	diag_layer.add_to_group("capture_ui")
 
-	var shot := Node.new()
-	shot.name = "ScreenshotTool"
-	shot.set_script(load("res://scripts/app/screenshot_tool.gd"))
-	add_child(shot)
+	var capture := Node.new()
+	capture.name = "CaptureService"
+	capture.set_script(load("res://scripts/app/capture_service.gd"))
+	capture.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(capture)
+	capture_service = capture
+
+	var bench := Node.new()
+	bench.name = "BenchmarkRunner"
+	bench.set_script(load("res://scripts/diagnostics/benchmark_runner.gd"))
+	bench.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(bench)
+	benchmark_runner = bench
 
 
 func _wire_signals() -> void:
 	map_manager.map_loading.connect(_on_map_loading)
 	map_manager.map_loaded.connect(_on_map_loaded)
+	map_manager.map_unloaded.connect(_on_map_unloaded)
 	map_manager.map_failed.connect(_on_map_failed)
-	tool_ui.map_requested.connect(func(mid: String) -> void: map_manager.request_map(mid))
+	tool_ui.map_requested.connect(func(mid: String) -> void: map_manager.request_map(StringName(mid)))
 	tool_ui.unload_requested.connect(func() -> void:
-		map_manager.unload_current_map()
+		map_manager.request_unload()
 		tool_ui.toggle_menu())
-	tool_ui.quality_requested.connect(func(id: String) -> void: settings.set_quality(id))
+	tool_ui.quality_requested.connect(func(id: String) -> void: settings.set_profile(StringName(id)))
 	settings.quality_changed.connect(_on_quality_changed)
+	# 书签
+	tool_ui.bookmark_save_requested.connect(_on_bookmark_save)
+	tool_ui.bookmark_load_requested.connect(_on_bookmark_load)
+	tool_ui.bookmark_delete_requested.connect(_on_bookmark_delete)
+	# 截图
+	capture_service.capture_completed.connect(func(req_id: int, png: String, _json: String) -> void:
+		print("截图已保存: ", png))
+	capture_service.capture_failed.connect(func(req_id: int, err: Error, msg: String) -> void:
+		printerr("截图失败: ", msg))
 
 
 func _refresh_map_menu() -> void:
@@ -127,51 +158,69 @@ func _refresh_map_menu() -> void:
 	tool_ui.set_map_entries(entries)
 
 
-func _on_quality_changed(profile: Dictionary) -> void:
-	tool_ui.set_quality(str(profile.get("id", "eco")), str(profile.get("label", "")))
-	var roots := get_tree().get_nodes_in_group("active_map_root")
-	for r in roots:
-		if r is MapRoot:
-			(r as MapRoot).apply_quality(profile)
+func _on_quality_changed(requested_id: StringName, effective_state: Dictionary) -> void:
+	tool_ui.set_quality(String(requested_id), str(effective_state.get("profile_id", "")))
+	# 地图侧应用由 MapManager 在激活期完成；这里处理空场景时也同步 UI 状态。
 	var v: Viewport = get_viewport()
-	v.use_occlusion_culling = not _occlusion_forced_off
+	v.use_occlusion_culling = true
 
 
-func _on_map_loading(map_id: String, progress: float) -> void:
+func _on_map_loading(map_id: StringName, _tx: int, stage: StringName, progress: float) -> void:
 	loading_overlay.visible = true
-	loading_label.text = "地图加载中… %d%%" % int(clampf(progress, 0.0, 1.0) * 100.0)
-	camera_ctl.enabled = false
-	tool_ui.set_busy(true, "地图加载中…")
+	var stage_text := "地图加载中…"
+	match String(stage):
+		"unloading": stage_text = "卸载旧地图…"
+		"resource_loading": stage_text = "地图资源加载中… %d%%" % int(clampf(progress, 0.0, 1.0) * 100.0) if progress >= 0.0 else "地图资源加载中…"
+		"activating": stage_text = "激活地图…"
+	loading_label.text = stage_text
+	camera_ctl.set_input_enabled(false)
+	tool_ui.set_busy(true, stage_text)
 
 
-func _on_map_loaded(map_id: String) -> void:
+func _on_map_loaded(map_id: StringName, _tx: int) -> void:
 	loading_overlay.visible = false
 	tool_ui.set_busy(false)
-	camera_ctl.enabled = true
-	var def: MapDefinition = map_manager.get_definition(map_id)
+	camera_ctl.set_input_enabled(true)
+	var def: MapDefinition = map_manager.get_definition(String(map_id))
 	var roots := get_tree().get_nodes_in_group("active_map_root")
 	if roots.is_empty() or def == null:
 		return
 	var map_root := roots[0] as MapRoot
-	tool_ui.set_map_info(map_id, def.display_name)
-	# 相机边界与机位：持有 Transform3D 值，不持有地图锚点节点
-	var anchor_transforms := {}
-	for anchor in def.anchor_names:
-		anchor_transforms[anchor] = map_root.get_anchor_transform(anchor)
-	camera_ctl.set_map_data(def.camera_bounds, def.camera_exclusion_bounds, def.anchor_names, def.default_anchor, anchor_transforms)
-	camera_ctl.go_to_default_anchor()
-	map_root.apply_quality(settings.get_profile())
-	diagnostics.set_map_node_count(_count_nodes(map_root))
-	diagnostics.set_extra_info("地图 %s | 资源加载 %.0f ms | 激活 %.0f ms" % [map_id, map_manager.last_resource_load_ms, map_manager.last_activation_ms])
+	tool_ui.set_map_info(String(map_id), def.display_name)
+	# 锚点位姿值（不持有锚点节点）；默认机位已由 MapManager 在激活期应用
+	var poses := {}
+	for anchor_id in map_root.get_anchor_ids():
+		poses[anchor_id] = map_root.get_anchor_pose(anchor_id)
+	var contract := map_manager.get_camera_contract()
+	camera_ctl.set_anchor_poses(poses, contract.get("default_anchor", &""))
+	tool_ui.set_anchor_hint(camera_ctl._anchor_order)
+	_refresh_bookmark_menu()
+	diagnostics.set_map_node_count(count_map_nodes(map_root))
+	diagnostics.set_extra_info("地图 %s (r%s) | 资源加载 %.0f ms | 激活 %.0f ms" % [
+		String(map_id), map_manager.get_current_content_revision(),
+		map_manager.last_resource_load_ms, map_manager.last_activation_ms])
 
 
-func _on_map_failed(map_id: String, reason: String) -> void:
+func _on_map_unloaded(_map_id: StringName, _tx: int) -> void:
+	tool_ui.set_map_info("", "未加载地图")
+	camera_ctl.unbind_map()
+	tool_ui.set_anchor_hint(PackedStringArray())
+
+
+func _on_map_failed(_map_id: StringName, _tx: int, _error: Error, message: String) -> void:
 	loading_overlay.visible = false
 	tool_ui.set_busy(false)
-	camera_ctl.enabled = true
+	camera_ctl.set_input_enabled(true)
 	tool_ui.set_map_info("", "未加载地图")
-	camera_ctl.clear_map_data()
-	tool_ui.set_busy(true, "加载失败：%s\n可从下方菜单重试或返回空场景。" % reason)
+	camera_ctl.unbind_map()
+	tool_ui.set_busy(true, "加载失败：%s\n可从下方菜单重试或返回空场景。" % message)
+
+
+func count_map_nodes(node: Node) -> int:
+	var count := 1
+	for child in node.get_children():
+		count += _count_nodes(child)
+	return count
 
 
 func _count_nodes(node: Node) -> int:
@@ -181,10 +230,41 @@ func _count_nodes(node: Node) -> int:
 	return count
 
 
+# ---------------- 书签 ----------------
+
+func _on_bookmark_save(label: String) -> void:
+	var pose: CameraPose = camera_ctl.get_pose()
+	if pose == null:
+		tool_ui.set_busy(true, "书签保存失败：未绑定地图")
+		tool_ui.set_busy(false)
+		return
+	var result := bookmarks.save_bookmark(label, pose, map_manager.get_current_content_revision())
+	_refresh_bookmark_menu()
+	if result.error != OK:
+		tool_ui.show_transient_message(str(result.message))
+
+
+func _on_bookmark_load(bookmark_id: String) -> void:
+	var pose := bookmarks.load_bookmark(bookmark_id)
+	if pose == null:
+		tool_ui.show_transient_message("书签不存在或数据无效")
+		return
+	var err: Error = camera_ctl.apply_pose(pose, true)
+	if err != OK:
+		tool_ui.show_transient_message("书签位置在当前地图不可用，可删除后重新保存")
+
+
+func _on_bookmark_delete(bookmark_id: String) -> void:
+	bookmarks.delete_bookmark(bookmark_id)
+	_refresh_bookmark_menu()
+
+
+func _refresh_bookmark_menu() -> void:
+	var map_id := map_manager.get_current_map_id()
+	tool_ui.set_bookmarks(bookmarks.list_bookmarks(map_id))
+
+
 # ---------------- 输入 ----------------
-
-var _occlusion_forced_off := false
-
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -200,7 +280,7 @@ func _input(event: InputEvent) -> void:
 
 func _handle_key(key: Key) -> void:
 	match key:
-		KEY_1, KEY_2, KEY_3:
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
 			if not tool_ui.is_menu_open():
 				var idx := (key - KEY_1) as int
 				var names: PackedStringArray = camera_ctl._anchor_order
@@ -215,7 +295,9 @@ func _handle_key(key: Key) -> void:
 		KEY_F2:
 			diagnostics.visible = not diagnostics.visible
 		KEY_F12:
-			_take_screenshot(false)
+			var err: Error = capture_service.request_capture()
+			if err == ERR_BUSY:
+				print("截图忙/节流中")
 		KEY_ESCAPE:
 			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -225,50 +307,39 @@ func _handle_key(key: Key) -> void:
 			pass
 
 
-func _take_screenshot(diag_variant: bool) -> void:
-	var shot := get_node("ScreenshotTool")
-	var layers: Array = []
-	if not diag_variant:
-		layers = [tool_ui, diagnostics.get_parent()]
-	var view := "free_camera"
-	var roots := get_tree().get_nodes_in_group("active_map_root")
-	if roots.size() > 0:
-		var map_root := roots[0] as MapRoot
-		# 粗略判断当前是否处于某个锚点附近
-		var ct: Transform3D = camera_ctl.get_camera_global_transform()
-		for anchor in camera_ctl._anchor_order:
-			var at: Transform3D = map_root.get_anchor_transform(anchor)
-			if at.origin.distance_to(ct.origin) < 0.6:
-				view = anchor
-				break
-	var path: String = await shot.take_screenshot(layers, map_manager.current_map_id, view if not diag_variant else view + "_diag", settings.current_quality)
-	if not path.is_empty():
-		print("截图已保存: ", path)
-
-
 # ---------------- 焦点与最小化 ----------------
+
+func set_automation_measure(flag: bool) -> void:
+	_automation_measure = flag
+
 
 func _notification(what: int) -> void:
 	if _automation_measure:
-		return  # 测量期间不应用节流（保证 60s 路线数据纯净）
+		return  # 基准运行期间：节流保持生效但暂停行为由基准中止逻辑负责
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
-		_focus_throttled = true
 		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		settings.apply_focus_throttle(true, _was_minimized)
+		settings.set_window_state(false, _was_minimized())
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
-		_focus_throttled = false
-		settings.apply_focus_throttle(false, _was_minimized)
+		settings.set_window_state(true, _was_minimized())
+
+
+func _was_minimized() -> bool:
+	return DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED
 
 
 func _process(_delta: float) -> void:
 	if _automation_measure:
 		return
-	var minimized := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MINIMIZED
-	if minimized != _was_minimized:
-		_was_minimized = minimized
+	var minimized := _was_minimized()
+	set_meta("_last_minimized", minimized)
+	if minimized != bool(get_meta("_prev_minimized", false)):
+		set_meta("_prev_minimized", minimized)
 		get_tree().paused = minimized  # 最小化暂停环境动画
-		settings.apply_focus_throttle(_focus_throttled, minimized)
+		settings.set_window_state(not minimized and DisplayServer.window_is_focused(), minimized)
+	elif DisplayServer.window_is_focused() != bool(get_meta("_prev_focused", true)):
+		set_meta("_prev_focused", DisplayServer.window_is_focused())
+		settings.set_window_state(DisplayServer.window_is_focused(), minimized)
 
 
 # ---------------- 自动化：截图 ----------------
@@ -277,9 +348,7 @@ func _run_automation_shoot(args: PackedStringArray) -> void:
 	await _await_map_ready()
 	var tiers: Array[String] = _tier_args(args, ["eco", "balanced"])
 	var graybox := args.has("--graybox")
-	var out_dir := "res://artifacts/screenshots"
-	DirAccess.make_dir_recursive_absolute(out_dir)
-	var shot := get_node("ScreenshotTool")
+	var shot_root := get_node("CaptureService")
 
 	if graybox:
 		var gray := StandardMaterial3D.new()
@@ -288,32 +357,34 @@ func _run_automation_shoot(args: PackedStringArray) -> void:
 		var roots := get_tree().get_nodes_in_group("active_map_root")
 		var map_root := roots[0] as MapRoot
 		_apply_override(map_root, gray)
-		await _shoot_anchors(shot, "graybox", out_dir)
+		await _shoot_anchors(shot_root, "graybox")
 		_apply_override(map_root, null)
 
 	for tier in tiers:
-		settings.set_quality(tier)
+		settings.set_profile(StringName(tier), false)
 		await get_tree().create_timer(0.6).timeout
-		await _shoot_anchors(shot, tier, out_dir)
+		await _shoot_anchors(shot_root, tier)
 	print("SHOOT_DONE")
 	get_tree().quit()
 
 
-func _shoot_anchors(shot: Node, tier: String, out_dir: String) -> void:
+func _shoot_anchors(shot_root: Node, tier: String) -> void:
 	for anchor in camera_ctl._anchor_order:
 		camera_ctl.go_to_anchor(anchor)
 		await get_tree().create_timer(0.45).timeout
-		var layers: Array = [tool_ui, diagnostics.get_parent()]
-		var path: String = await shot.take_screenshot(layers, map_manager.current_map_id, anchor, tier)
-		print("自动截图: ", path)
-	# 一张带诊断的验证图（清晰区分用途）
+		var err: Error = shot_root.request_capture("%s_%s" % [tier, anchor])
+		if err == OK:
+			await shot_root.capture_completed
+	print("自动截图完成: ", tier)
+	# 一张带诊断的验证图
 	if camera_ctl._anchor_order.size() > 0:
 		camera_ctl.go_to_anchor(camera_ctl._anchor_order[0])
 		await get_tree().create_timer(0.3).timeout
 		diagnostics.visible = true
-		var path: String = await shot.take_screenshot([tool_ui], map_manager.current_map_id, camera_ctl._anchor_order[0] + "_diag", tier)
+		var err: Error = shot_root.request_capture("%s_%s_diag" % [tier, camera_ctl._anchor_order[0]])
+		if err == OK:
+			await shot_root.capture_completed
 		diagnostics.visible = false
-		print("诊断截图: ", path)
 
 
 func _apply_override(root: Node, mat: Material) -> void:
@@ -324,42 +395,87 @@ func _apply_override(root: Node, mat: Material) -> void:
 			_apply_override(child, mat)
 
 
-# ---------------- 自动化：性能路线 ----------------
+# ---------------- 自动化：性能路线（BenchmarkRunner 合同） ----------------
 
 func _run_automation_perf(args: PackedStringArray) -> void:
 	await _await_map_ready()
 	tool_ui.set_visible_all(false)
 	(diagnostics.get_parent() as CanvasLayer).visible = false
-	_automation_measure = true
 	# 测量前重置用户配置，保证档位序列确定
 	DirAccess.remove_absolute("user://settings.cfg")
 	var tiers: Array[String] = _tier_args(args, ["eco", "balanced"])
 	var runs := 3
+	var route := "legacy_v1"
+	var mode := "capped"
+	var occlusion := "default"
+	var warmup := 15.0
 	for i in range(args.size()):
-		if args[i] == "--runs" and i + 1 < args.size():
-			runs = clampi(int(args[i + 1]), 1, 10)
-	for i in range(args.size()):
-		if args[i] == "--occlusion" and i + 1 < args.size():
-			_occlusion_forced_off = args[i + 1] == "off"
-			get_viewport().use_occlusion_culling = not _occlusion_forced_off
-
-	print("PERF warmup 15s …")
+		match args[i]:
+			"--runs":
+				if i + 1 < args.size():
+					runs = clampi(int(args[i + 1]), 1, 10)
+			"--route":
+				if i + 1 < args.size():
+					route = args[i + 1]
+			"--mode":
+				if i + 1 < args.size():
+					mode = args[i + 1]
+			"--occlusion":
+				if i + 1 < args.size():
+					occlusion = args[i + 1]
+			"--warmup":
+				if i + 1 < args.size():
+					warmup = float(args[i + 1])
+	print("PERF warmup(内置于首轮) 15s …")
 	await get_tree().create_timer(15.0).timeout
 	for tier in tiers:
-		settings.force_apply(tier)
-		await get_tree().create_timer(2.0).timeout
 		for r in runs:
-			var roots_now := get_tree().get_nodes_in_group("active_map_root")
-			if roots_now.is_empty():
-				printerr("PERF_ABORT: 活动地图为空（轮 ", r, "，档位 ", tier, "）")
-				_write_perf_csv()
+			var stamp := Time.get_datetime_string_from_system(false, true)
+			stamp = stamp.replace(":", "").replace("-", "").replace("T", "_").replace(" ", "")
+			var run_id := "v11_%s_%s_%s_r%d" % [route, tier, stamp, r]
+			_perf_config = {
+				"schema_version": 1,
+				"run_id": run_id,
+				"profile_id": tier,
+				"route_id": route,
+				"mode": mode,
+				"warmup_seconds": warmup if r == 0 else 0.0,
+				"duration_seconds": 60.0,
+				"occlusion_override": occlusion,
+				"output_directory": "user://benchmarks",
+			}
+			var err: Error = benchmark_runner.start_run(_perf_config)
+			if err != OK:
+				printerr("PERF_ABORT: start_run 失败 err=", err)
 				get_tree().quit(1)
 				return
-			print("PERF route begin: tier=", tier, " r=", r, " max_fps=", Engine.max_fps, " map_nodes=", _count_nodes(roots_now[0]))
-			await _run_one_route(tier, r)
-	_write_perf_csv()
+			var result: Array = await _await_benchmark_end()
+			if result[0] != "completed":
+				printerr("PERF_ABORT: ", result[1])
+				get_tree().quit(1)
+				return
+			print("PERF run done: ", run_id)
 	print("PERF_DONE")
 	get_tree().quit()
+
+
+func _await_benchmark_end() -> Array:
+	var outcome: Array = ["", ""]
+	var done := [false]
+	var on_complete := func(_run_id: String, _dir: String) -> void:
+		outcome[0] = "completed"
+		done[0] = true
+	var on_abort := func(_run_id: String, reason: String) -> void:
+		outcome[0] = "aborted"
+		outcome[1] = reason
+		done[0] = true
+	benchmark_runner.benchmark_completed.connect(on_complete, CONNECT_ONE_SHOT)
+	benchmark_runner.benchmark_aborted.connect(on_abort, CONNECT_ONE_SHOT)
+	while not done[0]:
+		await get_tree().process_frame
+	benchmark_runner.benchmark_completed.disconnect(on_complete)
+	benchmark_runner.benchmark_aborted.disconnect(on_abort)
+	return outcome
 
 
 func _await_map_ready() -> void:
@@ -379,82 +495,3 @@ func _tier_args(args: PackedStringArray, defaults: Array[String]) -> Array[Strin
 	if tiers.is_empty():
 		tiers = defaults.duplicate()
 	return tiers
-
-
-const ROUTE_SEGMENTS := [
-	{"p0": Vector3(-3, 1.7, 52), "p1": Vector3(-3, 1.7, 20), "look": Vector3(1, 8, -45)},
-	{"p0": Vector3(15, 1.8, 31), "p1": Vector3(19, 2.0, 29), "look": Vector3(33, 2.5, 25)},
-	{"p0": Vector3(18, 12, -35), "p1": Vector3(14, 13, -38), "look": Vector3(0, 12, -62)},
-]
-
-
-func _route_transform(t: float) -> Transform3D:
-	## 60 秒固定路线，三段明确切镜，时间驱动、与帧率无关。
-	var seg := int(clampf(t, 0.0, 59.999) / 20.0)
-	var local := clampf(t - seg * 20.0, 0.0, 20.0) / 20.0
-	var s: Dictionary = ROUTE_SEGMENTS[seg]
-	var pos: Vector3 = s["p0"].lerp(s["p1"], local)
-	var xf := Transform3D(Basis(), pos)
-	return xf.looking_at(s["look"], Vector3.UP)
-
-
-func _run_one_route(tier: String, run_index: int) -> void:
-	diagnostics.begin_sampling()
-	var elapsed := 0.0
-	while elapsed < 60.0:
-		var delta: float = get_process_delta_time()
-		elapsed += delta
-		camera_ctl.set_route_transform(_route_transform(elapsed))
-		await get_tree().process_frame
-	var stats: Dictionary = diagnostics.end_sampling()
-	var row := {
-		"run_id": "%s_%s_r%d_%s" % [tier, "m01", run_index, Time.get_datetime_string_from_system(false, false).replace("-", "")],
-		"map_id": "m01_afterglow", "quality": tier,
-		"renderer": diagnostics.get_renderer_name(), "build_type": "project_run",
-		"engine_version": str(Engine.get_version_info().get("string", "")),
-		"window_width": int(get_window().size.x), "window_height": int(get_window().size.y),
-		"render_scale": float(settings.get_profile().get("render_scale", 1.0)),
-		"frame_cap": int(settings.get_profile().get("max_fps", 0)),
-		"average_fps": stats.get("avg_fps", 0.0),
-		"frame_interval_p50_ms": stats.get("p50_ms", 0.0),
-		"frame_interval_p95_ms": stats.get("p95_ms", 0.0),
-		"frame_interval_p99_ms": stats.get("p99_ms", 0.0),
-		"stutter_over_100ms_count": int(stats.get("stutter_over_100ms", 0)),
-		"draw_calls_peak": int(stats.get("draw_call_peak", 0)),
-		"map_node_count": 0,
-		"process_working_set_mib": "N/A",
-		"gpu_memory_mib": roundf(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED) / (1024.0 * 1024.0)),
-		"resource_load_ms": map_manager.last_resource_load_ms,
-		"activation_ms": map_manager.last_activation_ms,
-		"notes": "gpu_memory 为引擎估计;工作集需外部测量;遮挡剔除 %s" % ("关闭" if _occlusion_forced_off else "开启"),
-	}
-	var roots := get_tree().get_nodes_in_group("active_map_root")
-	if roots.size() > 0:
-		row["map_node_count"] = _count_nodes(roots[0])
-	_perf_rows.append(row)
-	print("路线完成: ", row["run_id"], " avg_fps=", row["average_fps"])
-
-
-const CSV_HEADER := "run_id,map_id,quality,renderer,build_type,engine_version,window_width,window_height,render_scale,frame_cap,average_fps,frame_interval_p50_ms,frame_interval_p95_ms,frame_interval_p99_ms,stutter_over_100ms_count,draw_calls_peak,map_node_count,process_working_set_mib,gpu_memory_mib,resource_load_ms,activation_ms,notes"
-
-
-func _write_perf_csv() -> void:
-	var dir := "res://artifacts/performance"
-	DirAccess.make_dir_recursive_absolute(dir)
-	var path := dir + "/chapter1_metrics.csv"
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	f.store_line(CSV_HEADER)
-	for row in _perf_rows:
-		var cols := [
-			row["run_id"], row["map_id"], row["quality"], row["renderer"], row["build_type"],
-			row["engine_version"], str(row["window_width"]), str(row["window_height"]),
-			str(row["render_scale"]), str(row["frame_cap"]), "%.2f" % float(row["average_fps"]),
-			"%.2f" % float(row["frame_interval_p50_ms"]), "%.2f" % float(row["frame_interval_p95_ms"]),
-			"%.2f" % float(row["frame_interval_p99_ms"]), str(row["stutter_over_100ms_count"]),
-			str(row["draw_calls_peak"]), str(row["map_node_count"]), str(row["process_working_set_mib"]),
-			str(row["gpu_memory_mib"]), "%.1f" % float(row["resource_load_ms"]),
-			"%.1f" % float(row["activation_ms"]), '"%s"' % str(row["notes"]),
-		]
-		f.store_line(",".join(cols))
-	f.close()
-	print("性能 CSV 已写入: ", path)

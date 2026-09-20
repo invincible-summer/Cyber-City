@@ -1,9 +1,12 @@
-## 原生工具 UI：地图菜单、画质选择、机位提示、加载遮罩。F1 整体隐藏。
+## 原生工具 UI：地图菜单、画质选择、机位提示、书签、加载遮罩。F1 整体隐藏。
 extends CanvasLayer
 
 signal map_requested(map_id: String)
 signal unload_requested()
 signal quality_requested(id: String)
+signal bookmark_save_requested(label: String)
+signal bookmark_load_requested(bookmark_id: String)
+signal bookmark_delete_requested(bookmark_id: String)
 
 var root_control: Control
 var info_panel: PanelContainer
@@ -13,6 +16,8 @@ var hint_label: Label
 var menu_panel: PanelContainer
 var menu_box: VBoxContainer
 var menu_map_box: VBoxContainer
+var bookmark_box: VBoxContainer
+var bookmark_input: LineEdit
 var busy_label: Label
 var cjk_font: SystemFont
 
@@ -80,7 +85,7 @@ func _build_info_panel() -> void:
 
 
 func _build_hint() -> void:
-	hint_label = _new_label("右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速 · 1/2/3 机位 · Home 默认机位\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单", 14)
+	hint_label = _new_label("右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速 · 1–6 机位 · Home 默认机位\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签", 14)
 	hint_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	hint_label.position = Vector2(-560, -84)
 	hint_label.custom_minimum_size = Vector2(1120, 0)
@@ -113,6 +118,29 @@ func _build_menu() -> void:
 	var sep := HSeparator.new()
 	sep.custom_minimum_size = Vector2(360, 8)
 	menu_box.add_child(sep)
+	# 书签区
+	var bm_title := _new_label("摄影书签（当前地图最多 12 个）", 15)
+	menu_box.add_child(bm_title)
+	var save_row := HBoxContainer.new()
+	save_row.add_theme_constant_override("separation", 6)
+	bookmark_input = LineEdit.new()
+	bookmark_input.placeholder_text = "书签名称（1–40 字）"
+	bookmark_input.custom_minimum_size = Vector2(220, 0)
+	bookmark_input.add_theme_font_override("font", cjk_font)
+	bookmark_input.add_theme_font_size_override("font_size", 14)
+	save_row.add_child(bookmark_input)
+	var save_btn := _new_button("保存当前视角")
+	save_btn.pressed.connect(func() -> void:
+		bookmark_save_requested.emit(bookmark_input.text)
+		bookmark_input.text = "")
+	save_row.add_child(save_btn)
+	menu_box.add_child(save_row)
+	bookmark_box = VBoxContainer.new()
+	bookmark_box.add_theme_constant_override("separation", 3)
+	menu_box.add_child(bookmark_box)
+	var sep2 := HSeparator.new()
+	sep2.custom_minimum_size = Vector2(360, 8)
+	menu_box.add_child(sep2)
 	var reload := _new_button("重新进入当前地图")
 	reload.pressed.connect(func() -> void:
 		if not str(map_label.get_meta("map_id", "")).is_empty():
@@ -126,6 +154,8 @@ func _build_menu() -> void:
 	menu_box.add_child(close)
 	busy_label = _new_label("", 14)
 	busy_label.add_theme_color_override("font_color", Color(0.96, 0.73, 0.43, 1.0))
+	busy_label.custom_minimum_size = Vector2(360, 0)
+	busy_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	menu_box.add_child(busy_label)
 	menu_panel.add_child(menu_box)
 	menu_panel.visible = false
@@ -149,15 +179,67 @@ func set_map_entries(entries: Array) -> void:
 		menu_map_box.add_child(b)
 
 
-func set_quality(id: String, label_text: String) -> void:
+func set_bookmarks(entries: Array) -> void:
+	## entries: [{id, label, map_id, content_revision, created_utc}]
+	for child in bookmark_box.get_children():
+		bookmark_box.remove_child(child)
+		child.queue_free()
+	if entries.is_empty():
+		var empty := _new_label("（暂无书签）", 13)
+		empty.add_theme_color_override("font_color", Color(0.6, 0.65, 0.7, 0.8))
+		bookmark_box.add_child(empty)
+		return
+	for entry in entries:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var bm_id: String = entry.get("id", "")
+		var rev: String = entry.get("content_revision", "")
+		var label_text: String = entry.get("label", "?")
+		if not rev.is_empty() and rev != "1.1.0":
+			label_text += " [r%s]" % rev  # 旧版本书签提示
+		var load_btn := _new_button("▶ %s" % label_text)
+		load_btn.pressed.connect(func() -> void: bookmark_load_requested.emit(bm_id))
+		row.add_child(load_btn)
+		var del_btn := _new_button("×")
+		del_btn.tooltip_text = "删除"
+		del_btn.pressed.connect(func() -> void: bookmark_delete_requested.emit(bm_id))
+		row.add_child(del_btn)
+		bookmark_box.add_child(row)
+
+
+func set_quality(id: String, _label_text: String) -> void:
 	for k in quality_buttons:
 		var b: Button = quality_buttons[k]
 		b.button_pressed = (k == id)
 
 
+func set_anchor_hint(anchor_names: PackedStringArray) -> void:
+	if anchor_names.is_empty():
+		hint_label.text = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签"
+		return
+	var parts := PackedStringArray()
+	for i in anchor_names.size():
+		parts.append("%d=%s" % [i + 1, anchor_names[i]])
+	hint_label.text = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速 · Home 默认\n%s\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签" % " · ".join(parts)
+
+
 func set_busy(busy: bool, text: String = "") -> void:
 	busy_label.text = text if busy else ""
 	menu_panel.visible = busy
+
+
+func show_transient_message(text: String) -> void:
+	## 菜单打开时显示在菜单内；否则短暂弹出提示后关闭。
+	if menu_panel.visible:
+		busy_label.text = text
+	else:
+		menu_panel.visible = true
+		busy_label.text = text
+		var timer := get_tree().create_timer(2.5)
+		timer.timeout.connect(func() -> void:
+			if busy_label.text == text:
+				busy_label.text = ""
+				menu_panel.visible = false)
 
 
 func set_loading_progress(progress: float) -> void:

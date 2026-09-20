@@ -1,20 +1,22 @@
 ## 中文招牌纹理生成（制作阶段工具，需窗口运行以使用 SubViewport 渲染）。
 ## 运行：godot --path . res://tools/run_gen_signs.tscn
-## 字体：Windows 系统字体（微软雅黑等）按名称引用渲染，不复制字体文件进项目。
-## 许可说明见 docs/asset_sources.md。
+## 字体：项目内固定可再分发字体（chapter1-1 FIX-10）：Noto Sans SC（OFL 1.1）。
+## 同输入必产同输出；许可与哈希记录见 docs/asset_sources.md。
 extends Node
 
 const OUT := "res://assets/m01_afterglow/textures/signs"
+const FONT_PATH := "res://assets/fonts/source/NotoSansSC-Regular.otf"
 
-var _font: SystemFont
+var _font: Font
 
 
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(OUT)
-	_font = SystemFont.new()
-	_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "Noto Sans CJK SC"])
-	if "font_weight" in _font:
-		_font.font_weight = 700
+	_font = load(FONT_PATH) as Font
+	if _font == null:
+		push_error("固定字体加载失败: %s（先 --headless --import）" % FONT_PATH)
+		get_tree().quit(1)
+		return
 
 	await _sign_main()
 	await _sign_small()

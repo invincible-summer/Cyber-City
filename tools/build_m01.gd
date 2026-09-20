@@ -1,8 +1,9 @@
-## M01「余晖街区」离线生成（制作阶段工具）。
+## M01「余晖街区」离线生成（制作阶段工具）—— chapter1-1 §6.1 生成层。
 ## 运行前置：纹理与招牌 PNG 已生成并导入（--headless --import）。
 ## 运行：godot --headless --path . --script res://tools/build_m01.gd
-## 输出：maps/m01_afterglow/map.tscn + map_definition.tres + meshes/ + materials/
-##       tests/fixtures/mini_test_map.tscn（极小测试地图，不进注册表）
+## 输出：maps/m01_afterglow/generated/map_generated.tscn（StaticGeometry/Props/Lighting）
+##       + meshes/ + generated_spec.json（exclusions/灯位/环境件位置，供 assemble_m01 组装）
+## 注意：本脚本不写 map.tscn / MapDefinition / 锚点 / Environment——那些由 tools/assemble_m01.gd 组合。
 extends SceneTree
 
 const GL := preload("res://tools/gen_lib.gd")
@@ -10,8 +11,9 @@ const MAP_DEF_SCRIPT := preload("res://scripts/maps/map_definition.gd")
 const TEX := "res://assets/m01_afterglow/textures"
 const MAT_DIR := "res://assets/m01_afterglow/materials"
 const MESH_DIR := "res://maps/m01_afterglow/meshes"
-const MAP_SCENE := "res://maps/m01_afterglow/map.tscn"
-const MAP_DEF := "res://maps/m01_afterglow/map_definition.tres"
+const GENERATED_DIR := "res://maps/m01_afterglow/generated"
+const GENERATED_SCENE := "res://maps/m01_afterglow/generated/map_generated.tscn"
+const SPEC_PATH := "res://maps/m01_afterglow/generated/generated_spec.json"
 const FIXTURE_SCENE := "res://tests/fixtures/mini_test_map.tscn"
 const FIXTURE_DEF := "res://tests/fixtures/mini_test_map_definition.tres"
 
@@ -35,21 +37,19 @@ func _run() -> void:
 	_rng.seed = 730001
 	DirAccess.make_dir_recursive_absolute(MAT_DIR)
 	DirAccess.make_dir_recursive_absolute(MESH_DIR)
+	DirAccess.make_dir_recursive_absolute(GENERATED_DIR)
 	DirAccess.make_dir_recursive_absolute("res://maps/m01_afterglow/baked")
 	_mk_materials()
 
-	var root := _build_map_root()
+	var root := _build_generated_root()
 	_build_static_geometry(root)
 	_build_props(root)
 	_build_lighting(root)
-	_build_backdrop(root)
-	_build_environment(root)
-	_build_anchors(root)
-	_build_ambient(root)
+	_build_backdrop_mesh()
 
-	var err := ResourceSaver.save(_pack(root), MAP_SCENE)
-	print("map.tscn saved: ", err)
-	_save_definition()
+	var err := ResourceSaver.save(_pack(root), GENERATED_SCENE)
+	print("generated scene saved: ", err, " -> ", GENERATED_SCENE)
+	_save_spec()
 	_build_fixture()
 	print("BUILD_DONE tris_est=", _total_tris)
 	quit(0)
@@ -190,10 +190,10 @@ func _node3d(name: String, parent: Node) -> Node3D:
 	return n
 
 
-func _build_map_root() -> Node3D:
+func _build_generated_root() -> Node3D:
+	## 生成层根：只含参与烘焙的静态内容与灯光；不挂 MapRoot/环境/锚点。
 	var root := Node3D.new()
-	root.name = "M01Afterglow"
-	root.set_script(load("res://scripts/maps/map_root.gd"))
+	root.name = "M01Generated"
 	return root
 
 
@@ -842,7 +842,7 @@ func _build_lighting(root: Node3D) -> void:
 		o.omni_range = L["range"]
 		o.light_bake_mode = Light3D.BAKE_STATIC
 		o.shadow_enabled = false
-		o.add_to_group("q_runtime_light")
+		o.add_to_group("bake_only_light")
 		lighting.add_child(o)
 	# 均衡档补光（≤2，无阴影）
 	var extra1 := OmniLight3D.new()
@@ -852,7 +852,7 @@ func _build_lighting(root: Node3D) -> void:
 	extra1.omni_range = 5.5
 	extra1.shadow_enabled = false
 	extra1.visible = false
-	extra1.add_to_group("q_extra_light")
+	extra1.add_to_group("runtime_fill_light")
 	lighting.add_child(extra1)
 	var extra2 := OmniLight3D.new()
 	extra2.position = Vector3(21.0, 2.6, -57.5)
@@ -861,7 +861,7 @@ func _build_lighting(root: Node3D) -> void:
 	extra2.omni_range = 7.0
 	extra2.shadow_enabled = false
 	extra2.visible = false
-	extra2.add_to_group("q_extra_light")
+	extra2.add_to_group("runtime_fill_light")
 	lighting.add_child(extra2)
 	# 均衡档反射探针（≤2，Once）
 	var probe1 := ReflectionProbe.new()
@@ -869,20 +869,20 @@ func _build_lighting(root: Node3D) -> void:
 	probe1.size = Vector3(18, 6, 18)
 	probe1.update_mode = ReflectionProbe.UPDATE_ONCE
 	probe1.visible = false
-	probe1.add_to_group("q_probe")
+	probe1.add_to_group("optional_probe")
 	lighting.add_child(probe1)
 	var probe2 := ReflectionProbe.new()
 	probe2.position = Vector3(0, 3.5, -18)
 	probe2.size = Vector3(24, 7, 30)
 	probe2.update_mode = ReflectionProbe.UPDATE_ONCE
 	probe2.visible = false
-	probe2.add_to_group("q_probe")
+	probe2.add_to_group("optional_probe")
 	lighting.add_child(probe2)
 	_own(lighting, root)
 
 
-func _build_backdrop(root: Node3D) -> void:
-	var backdrop := _node3d("Backdrop", root)
+func _build_backdrop_mesh() -> void:
+	## 远景天际线网格：只产出 mesh 资源；节点由 assemble_m01 放置在 BakedWorld 之外。
 	var mb := GL.MeshBuilder.new()
 	# 远景塔楼环（不烘焙：px_per_m=0）
 	var rng := RandomNumberGenerator.new()
@@ -922,133 +922,44 @@ func _build_backdrop(root: Node3D) -> void:
 	mb.box("ground_far", Vector3(-260, -0.06, -260), Vector3(260, -0.04, 260), 1.0 / 36.0, 0.0, 4)
 	var mesh := mb.commit(mats, "%s/backdrop.res" % MESH_DIR, Vector2i(64, 64))
 	_total_tris += mb.tri_count()
-	var mi := MeshInstance3D.new()
-	mi.name = "BackdropMesh"
-	mi.mesh = mesh
-	backdrop.add_child(mi)
-	_own(backdrop, root)
+	print("backdrop: tris=", mb.tri_count())
 
 
-func _build_environment(root: Node3D) -> void:
-	var we := WorldEnvironment.new()
-	we.name = "Environment"
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.075, 0.12, 0.23)
-	sky_mat.sky_horizon_color = Color(0.62, 0.45, 0.38)
-	sky_mat.ground_bottom_color = Color(0.05, 0.06, 0.08)
-	sky_mat.ground_horizon_color = Color(0.4, 0.33, 0.31)
-	sky_mat.sun_angle_max = 8.0
-	sky_mat.sun_curve = 0.12
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 1.15
-	env.tonemap_mode = Environment.TONE_MAPPER_ACES
-	env.tonemap_exposure = 1.18
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.42, 0.47, 0.56)
-	env.fog_density = 0.0055
-	env.fog_sky_affect = 0.5
-	env.glow_enabled = true  # 运行时由画质档开关
-	env.glow_intensity = 0.6
-	env.glow_bloom = 0.05
-	env.glow_hdr_threshold = 1.05
-	we.environment = env
-	root.add_child(we)
+# ============================ 生成规格（供 assemble_m01 组装） ============================
 
-
-func _build_anchors(root: Node3D) -> void:
-	var anchors := _node3d("CameraAnchors", root)
-	_add_anchor(anchors, "street_view", Vector3(-3, 1.7, 52), Vector3(1, 8, -45))
-	_add_anchor(anchors, "repair_shop_view", Vector3(15, 1.8, 31), Vector3(33, 2.5, 25))
-	_add_anchor(anchors, "station_view", Vector3(18, 12, -35), Vector3(0, 12, -62))
-	var reserved := _node3d("Reserved", root)
-	_node3d("ActorRoot", reserved)
-
-
-func _add_anchor(parent: Node3D, anchor_name: String, pos: Vector3, look_at: Vector3) -> void:
-	var m := Marker3D.new()
-	m.name = anchor_name
-	m.transform = Transform3D(Basis(), pos).looking_at(look_at, Vector3.UP)
-	parent.add_child(m)
-
-
-func _build_ambient(root: Node3D) -> void:
-	var ambient := _node3d("Ambient", root)
-	# 排风扇 ×2（带朝向 pivot，动画在 map_root 中处理）
-	_add_fan(ambient, _fan_positions[0] if _fan_positions.size() > 0 else Vector3(-18, 3.4, 5.75), Vector3(90, 0, 0))
-	_add_fan(ambient, Vector3(36.5, 4.6, 17.72), Vector3(-90, 0, 0))
-	# 闪烁霓虹 ×2（material_override 由 map_root 读取）
-	_add_flicker(ambient, "sign_bar_v", Vector3(-12.35, 4.3, -1.2), Vector2(0.8, 2.6), PI / 2)
-	_add_flicker(ambient, "sign_electronics", Vector3(-11.63, 3.75, -10.5), Vector2(6.1, 0.62), PI / 2)
-	# 局部蒸汽 ×2（均衡档）
-	_add_particles(ambient, Vector3(-30.5, 0.3, -2.0))
-	_add_particles(ambient, Vector3(38.5, 8.35, 23.5))
-	_own(ambient, root)
-
-
-func _add_fan(parent: Node3D, pos: Vector3, pivot_deg: Vector3) -> void:
-	var pivot := Node3D.new()
-	pivot.name = "FanPivot"
-	pivot.position = pos
-	pivot.rotation_degrees = pivot_deg
-	var mi := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.2
-	cm.bottom_radius = 0.2
-	cm.height = 0.035
-	cm.radial_segments = 10
-	mi.mesh = cm
-	mi.material_override = mats["metal_dark"]
-	mi.set_meta("anim_rotate", true)
-	mi.set_meta("anim_axis", "y")
-	mi.set_meta("anim_speed", 3.2)
-	pivot.add_child(mi)
-	parent.add_child(pivot)
-
-
-func _add_flicker(parent: Node3D, mat_key: String, pos: Vector3, size: Vector2, rot_y: float) -> void:
-	var mi := MeshInstance3D.new()
-	var qm := QuadMesh.new()
-	qm.size = size
-	mi.mesh = qm
-	mi.material_override = (mats[mat_key] as StandardMaterial3D).duplicate()
-	mi.position = pos
-	mi.rotation_degrees.y = rot_y
-	mi.set_meta("anim_flicker", true)
-	parent.add_child(mi)
-
-
-func _add_particles(parent: Node3D, pos: Vector3) -> void:
-	var p := GPUParticles3D.new()
-	p.position = pos
-	p.amount = 8
-	p.lifetime = 3.2
-	var pm := ParticleProcessMaterial.new()
-	pm.direction = Vector3(0.04, 1, 0.03)
-	pm.spread = 9.0
-	pm.initial_velocity_min = 0.22
-	pm.initial_velocity_max = 0.45
-	pm.gravity = Vector3(0, 0.1, 0)
-	pm.scale_min = 0.8
-	pm.scale_max = 1.8
-	pm.color = Color(0.8, 0.83, 0.87, 0.15)
-	p.process_material = pm
-	var quad := QuadMesh.new()
-	quad.size = Vector2(0.5, 0.5)
-	var sm := StandardMaterial3D.new()
-	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	sm.albedo_color = Color(0.8, 0.84, 0.88, 0.12)
-	sm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	quad.material = sm
-	p.draw_pass_1 = quad
-	p.emitting = false
-	p.add_to_group("q_particle")
-	parent.add_child(p)
+func _save_spec() -> void:
+	## 输出生成层规格 JSON：禁入体积、灯位、环境件位置。assemble 据此组合最终地图。
+	var excl: Array = []
+	for b in exclusions:
+		excl.append([b.position.x, b.position.y, b.position.z, b.size.x, b.size.y, b.size.z])
+	var spec := {
+		"schema_version": 1,
+		"generated_scene": GENERATED_SCENE,
+		"backdrop_mesh": "%s/backdrop.res" % MESH_DIR,
+		"exclusions": excl,
+		"fan_positions": [
+			[_fan_positions[0].x, _fan_positions[0].y, _fan_positions[0].z] if _fan_positions.size() > 0 else [-18.0, 3.4, 5.75],
+			[36.5, 4.6, 17.72],
+		],
+		"flickers": [
+			{"mat_key": "sign_bar_v", "pos": [-12.35, 4.3, -1.2], "size": [0.8, 2.6], "rot_y": 90.0},
+			{"mat_key": "sign_electronics", "pos": [-11.63, 3.75, -10.5], "size": [6.1, 0.62], "rot_y": 90.0},
+		],
+		"particles": [[-30.5, 0.3, -2.0], [38.5, 8.35, 23.5]],
+		"camera_bounds": [-50.0, 1.5, -70.0, 100.0, 22.5, 140.0],
+		"anchors": {
+			"street_view": {"pos": [-3, 1.7, 52], "look": [1, 8, -45]},
+			"repair_shop_view": {"pos": [15, 1.8, 31], "look": [33, 2.5, 25]},
+			"station_view": {"pos": [18, 12, -35], "look": [0, 12, -62]},
+		},
+	}
+	var f := FileAccess.open(SPEC_PATH, FileAccess.WRITE)
+	if f == null:
+		push_error("spec 写入失败")
+		return
+	f.store_string(JSON.stringify(spec, "  "))
+	f.close()
+	print("spec saved: ", SPEC_PATH)
 
 
 # ============================ 遮挡体 ============================
@@ -1067,24 +978,7 @@ func _add_occluders(parent: Node3D) -> void:
 		parent.add_child(occ)
 
 
-# ============================ 定义与测试地图 ============================
-
-func _save_definition() -> void:
-	var def := MAP_DEF_SCRIPT.new()
-	def.schema_version = 1
-	def.map_id = "m01_afterglow"
-	def.display_name = "余晖街区"
-	def.scene_path = MAP_SCENE
-	def.preview_path = ""
-	def.default_anchor = "street_view"
-	def.camera_bounds = AABB(Vector3(-50, 1.5, -70), Vector3(100, 22.5, 140))
-	def.camera_exclusion_bounds = exclusions
-	def.anchor_names = PackedStringArray(["street_view", "repair_shop_view", "station_view"])
-	def.lighting_profile_id = "m01_dusk_v1"
-	def.available = true
-	var err := ResourceSaver.save(def, MAP_DEF)
-	print("definition saved: ", err)
-
+# ============================ 测试地图 ============================
 
 func _build_fixture() -> void:
 	DirAccess.make_dir_recursive_absolute("res://tests/fixtures")
@@ -1106,7 +1000,10 @@ func _build_fixture() -> void:
 	we.environment = env
 	root.add_child(we)
 	var anchors := _node3d("CameraAnchors", root)
-	_add_anchor(anchors, "test_anchor", Vector3(8, 2, 8), Vector3(0, 2, 0))
+	var test_anchor := Marker3D.new()
+	test_anchor.name = "test_anchor"
+	test_anchor.transform = Transform3D(Basis(), Vector3(8, 2, 8)).looking_at(Vector3(0, 2, 0), Vector3.UP)
+	anchors.add_child(test_anchor)
 	_own(mi, root)
 	_own(we, root)
 	_own(anchors, root)
