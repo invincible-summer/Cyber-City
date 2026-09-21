@@ -25,6 +25,9 @@ var _ui_hidden := false
 ## 基准期间为 true：主循环不应用失焦/最小化节流与整树暂停（基准自行检测失焦并中止）。
 var _automation_measure := false
 var _perf_config: Dictionary = {}
+# ---- 门户运行时（chapter1-2 §4.4）----
+var _portals: Array[Dictionary] = []
+var _active_portal: Dictionary = {}
 
 
 func _ready() -> void:
@@ -41,20 +44,25 @@ func _ready() -> void:
 	capture_service.setup(activity_guard, map_manager, settings, camera_ctl)
 	benchmark_runner.setup(activity_guard, map_manager, settings, camera_ctl, self)
 	_wire_signals()
+	camera_ctl.pose_changed.connect(_on_pose_changed)
 
 	_refresh_map_menu()
 	# 手动同步一次画质 UI（SettingsManager 在 _ready 中发信号时本节点尚未接线）
 	_on_quality_changed(&"eco", settings.get_effective_state())
 
 	var args := OS.get_cmdline_user_args()
+	var auto_map := AUTO_MAP_ID
+	for i in range(args.size()):
+		if args[i] == "--map" and i + 1 < args.size():
+			auto_map = args[i + 1]
 	if args.has("--perf"):
-		map_manager.request_map(AUTO_MAP_ID)
+		map_manager.request_map(StringName(auto_map))
 		_run_automation_perf(args)
 	elif args.has("--shoot"):
-		map_manager.request_map(AUTO_MAP_ID)
+		map_manager.request_map(StringName(auto_map))
 		_run_automation_shoot(args)
 	else:
-		map_manager.request_map(AUTO_MAP_ID)
+		map_manager.request_map(StringName(auto_map))
 
 
 func _build_shell() -> void:
@@ -181,6 +189,9 @@ func _on_map_loading(map_id: StringName, _tx: int, stage: StringName, progress: 
 	loading_label.text = stage_text
 	camera_ctl.set_input_enabled(false)
 	tool_ui.set_busy(true, stage_text)
+	_portals = []
+	_active_portal = {}
+	tool_ui.hide_portal_hint()
 
 
 func _on_map_loaded(map_id: StringName, _tx: int) -> void:
@@ -199,7 +210,12 @@ func _on_map_loaded(map_id: StringName, _tx: int) -> void:
 		poses[anchor_id] = map_root.get_anchor_pose(anchor_id)
 	var contract: Dictionary = map_manager.get_camera_contract()
 	camera_ctl.set_anchor_poses(poses, contract.get("default_anchor", &""))
-	tool_ui.set_anchor_hint(camera_ctl._anchor_order)
+	tool_ui.set_anchor_hint(camera_ctl._anchor_order, camera_ctl.is_walk_mode())
+	_portals = []
+	for p in contract.get("portals", []):
+		if p is Dictionary:
+			_portals.append(p)
+	_active_portal = {}
 	_refresh_bookmark_menu()
 	diagnostics.set_map_node_count(count_map_nodes(map_root))
 	diagnostics.set_extra_info("地图 %s (r%s) | 资源加载 %.0f ms | 激活 %.0f ms" % [
@@ -211,6 +227,9 @@ func _on_map_unloaded(_map_id: StringName, _tx: int) -> void:
 	tool_ui.set_map_info("", "未加载地图")
 	camera_ctl.unbind_map()
 	tool_ui.set_anchor_hint(PackedStringArray())
+	_portals = []
+	_active_portal = {}
+	tool_ui.hide_portal_hint()
 
 
 func _on_map_failed(_map_id: StringName, _tx: int, _error: Error, message: String) -> void:
@@ -219,7 +238,52 @@ func _on_map_failed(_map_id: StringName, _tx: int, _error: Error, message: Strin
 	camera_ctl.set_input_enabled(true)
 	tool_ui.set_map_info("", "未加载地图")
 	camera_ctl.unbind_map()
+	_portals = []
+	_active_portal = {}
+	tool_ui.hide_portal_hint()
 	tool_ui.set_busy(true, "加载失败：%s\n可从下方菜单重试或返回空场景。" % message)
+
+
+# ---------------- 门户（chapter1-2 §4.4） ----------------
+
+func _on_pose_changed(pose: CameraPose) -> void:
+	## ≤10 Hz 门户命中轮询（每图 ≤4 个门户）；命中显示 F 提示并开门，离开关门。
+	if pose == null or _portals.is_empty() or map_manager.is_busy():
+		return
+	var hit: Dictionary = {}
+	for p in _portals:
+		var pp: Vector3 = p.get("pos", Vector3.INF)
+		if pp.distance_to(pose.transform.origin) <= float(p.get("radius", 1.5)):
+			hit = p
+			break
+	var hit_id := "%s:%s" % [str(hit.get("target_map_id", "")), str(hit.get("target_anchor", ""))]
+	var active_id := "%s:%s" % [str(_active_portal.get("target_map_id", "")), str(_active_portal.get("target_anchor", ""))]
+	if not hit.is_empty() and hit_id != active_id:
+		_active_portal = hit
+		tool_ui.show_portal_hint("按 F — %s" % str(hit.get("label", "进入")))
+		_set_portal_doors(true)
+	elif hit.is_empty() and not _active_portal.is_empty():
+		_active_portal = {}
+		tool_ui.hide_portal_hint()
+		_set_portal_doors(false)
+
+
+func _set_portal_doors(open: bool) -> void:
+	var roots := get_tree().get_nodes_in_group("active_map_root")
+	if roots.is_empty():
+		return
+	(roots[0] as MapRoot).set_portal_door_open(open)
+
+
+func _try_enter_portal() -> void:
+	if _active_portal.is_empty():
+		return
+	var target := str(_active_portal.get("target_map_id", ""))
+	var anchor := str(_active_portal.get("target_anchor", ""))
+	var err: Error = map_manager.request_map(StringName(target), false, StringName(anchor))
+	if err == ERR_BUSY:
+		tool_ui.show_transient_message("地图切换进行中，请稍候…")
+	# 受理后 _on_map_loading 清提示；失败由 _on_map_failed 呈现
 
 
 func count_map_nodes(node: Node) -> int:
@@ -304,6 +368,9 @@ func _handle_key(key: Key) -> void:
 			var err: Error = capture_service.request_capture()
 			if err == ERR_BUSY:
 				print("截图忙/节流中")
+		KEY_F:
+			if not tool_ui.is_menu_open():
+				_try_enter_portal()
 		KEY_ESCAPE:
 			if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -377,17 +444,27 @@ func _run_automation_shoot(args: PackedStringArray) -> void:
 func _shoot_anchors(shot_root: Node, tier: String) -> void:
 	for anchor in camera_ctl._anchor_order:
 		camera_ctl.go_to_anchor(anchor)
-		await get_tree().create_timer(0.45).timeout
+		# 等待须大于 CaptureService.THROTTLE_MSEC(500ms)，否则 request_capture 返回
+		# ERR_BUSY 被静默跳过（1.2 修复：balanced 档曾因此缺 entry/workbench 两张）
+		await get_tree().create_timer(0.62).timeout
 		var err: Error = shot_root.request_capture("%s_%s" % [tier, anchor])
+		if err != OK:
+			await get_tree().create_timer(0.35).timeout
+			err = shot_root.request_capture("%s_%s" % [tier, anchor])
+		if err != OK:
+			push_warning("自动截图跳过 %s_%s（capture err=%d）" % [tier, anchor, err])
 		if err == OK:
 			await shot_root.capture_completed
 	print("自动截图完成: ", tier)
 	# 一张带诊断的验证图
 	if camera_ctl._anchor_order.size() > 0:
 		camera_ctl.go_to_anchor(camera_ctl._anchor_order[0])
-		await get_tree().create_timer(0.3).timeout
+		await get_tree().create_timer(0.35).timeout
 		diagnostics.visible = true
 		var err: Error = shot_root.request_capture("%s_%s_diag" % [tier, camera_ctl._anchor_order[0]])
+		if err != OK:
+			await get_tree().create_timer(0.35).timeout
+			err = shot_root.request_capture("%s_%s_diag" % [tier, camera_ctl._anchor_order[0]])
 		if err == OK:
 			await shot_root.capture_completed
 		diagnostics.visible = false

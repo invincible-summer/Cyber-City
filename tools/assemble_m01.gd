@@ -19,7 +19,7 @@ const MAT_DIR := "res://assets/m01_afterglow/materials"
 const TEX := "res://assets/m01_afterglow/textures"
 const FONT_SOURCE := "res://assets/fonts/source/NotoSansSC-Regular.otf"
 
-const CONTENT_REVISION := "1.1.0"
+const CONTENT_REVISION := "1.2.0"
 # chapter1-1 §3.4：外围 bounds（最终以成品收紧）
 const BOUNDS := [-78.0, 1.5, -98.0, 156.0, 26.5, 196.0]
 
@@ -312,8 +312,19 @@ func _save_definition() -> void:
 	def.occlusion_enabled = true
 	def.bookmark_schema_version = 1
 	def.requires_baked_lighting = true
+	# chapter1-2 §4.4：门户（门外 → 店内）
+	var portal_list: Array[Dictionary] = []
+	for p in authored.get("portals", []):
+		portal_list.append({
+			"pos": Vector3(p["pos"][0], p["pos"][1], p["pos"][2]),
+			"radius": float(p["radius"]),
+			"target_map_id": str(p["target_map_id"]),
+			"target_anchor": str(p["target_anchor"]),
+			"label": str(p["label"]),
+		})
+	def.portals = portal_list
 	var err := ResourceSaver.save(def, MAP_DEF)
-	print("definition saved: ", err, " anchors=", anchor_ids.size(), " exclusions=", exclusions.size())
+	print("definition saved: ", err, " anchors=", anchor_ids.size(), " exclusions=", exclusions.size(), " portals=", portal_list.size())
 
 
 # ============================ 构建清单（§9.3） ============================

@@ -1,0 +1,22 @@
+{
+  "actual_baked_user_paths": [
+    "../Backdrop/InteriorBackdropMesh",
+    "Generated/PortalDoors/ShopDoorPivot/DoorLeaf",
+    "Generated/StaticGeometry/InteriorGlassMesh",
+    "Generated/StaticGeometry/InteriorStaticMesh"
+  ],
+  "authored_input_hash": "",
+  "bake_finished_utc": "2026-09-21T10:39:55",
+  "bake_job_id": "bake-20260921T103940",
+  "bake_status": "succeeded",
+  "build_id": "local-20260920T151725",
+  "content_revision": "1.2.0",
+  "engine_version": "4.7.2-stable (official)",
+  "expected_baked_user_paths": [],
+  "font_source_hash": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
+  "geometry_input_hash": "eeb62d5ae1c2fb40b52b2482691b402d4bf4502baeaf1fd8147af4d0bcf8abd8",
+  "lighting_input_hash": "eeb62d5ae1c2fb40b52b2482691b402d4bf4502baeaf1fd8147af4d0bcf8abd8",
+  "map_id": "m01_repair_interior",
+  "outputs": [],
+  "schema_version": 1.0
+}

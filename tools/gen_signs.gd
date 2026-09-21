@@ -151,3 +151,18 @@ func _sign_small() -> void:
 	l2.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3))
 	vp.get_child(0).add_child(l2)
 	await _finish(vp, "bar_v")
+
+	# ---- chapter1-2 §5.2：街面丰富 A 牌字图（非发光白板/黑板风） ----
+	# 今日特惠（便利店外摆 A 字立牌，G3）
+	vp = _begin(384, 512, Color(0.92, 0.90, 0.86), Color(0.35, 0.28, 0.22), 10, 6)
+	_label(vp.get_child(0), "今日特惠", Color(0.22, 0.16, 0.10), 86, 56, 0)
+	_label(vp.get_child(0), "全场九折", Color(0.55, 0.18, 0.12), 64, 190, 0)
+	_label(vp.get_child(0), "海风便利", Color(0.35, 0.30, 0.26), 44, 330, 0)
+	await _finish(vp, "special")
+
+	# 营业中（维修铺广场 A 板，G4）
+	vp = _begin(384, 512, Color(0.10, 0.07, 0.06), Color(1.0, 0.62, 0.32), 10, 6)
+	_label(vp.get_child(0), "营业中", Color(1.0, 0.80, 0.52), 96, 96, 0)
+	_label(vp.get_child(0), "余晖维修", Color(0.88, 0.76, 0.64), 54, 268, 0)
+	_label(vp.get_child(0), "WALK-IN", Color(0.55, 0.48, 0.42), 30, 356, 0)
+	await _finish(vp, "open_board")

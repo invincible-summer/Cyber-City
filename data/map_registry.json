@@ -4,6 +4,10 @@
     {
       "map_id": "m01_afterglow",
       "definition_path": "res://maps/m01_afterglow/map_definition.tres"
+    },
+    {
+      "map_id": "m01_repair_interior",
+      "definition_path": "res://maps/m01_repair_interior/map_definition.tres"
     }
   ]
 }

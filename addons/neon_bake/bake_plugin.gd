@@ -11,8 +11,7 @@ signal bake_started(job_id: String, map_id: StringName)
 signal bake_finished(job_id: String, success: bool, report_path: String)
 
 const DEFAULT_SCENE := "res://maps/m01_afterglow/map.tscn"
-const MANIFEST_PATH := "res://maps/m01_afterglow/build_manifest.json"
-const REPORT_DIR := "res://artifacts/chapter1_1"
+const REPORT_DIR := "res://artifacts/chapter1_2"
 const BAKE_TIMEOUT_SEC := 900.0  # 默认 15 分钟上限
 const POLL_INTERVAL := 0.5
 
@@ -43,11 +42,18 @@ func fail_job(job_id: String, reason: String) -> void:
 	_write_report(job_id, false, reason, {})
 
 
+## 多地图（chapter1-2 §6）：场景统一放在 maps/<map_id>/map.tscn，
+## 清单/烘焙数据/报告路径全部从场景路径推导。
 func _scene_for_map(map_id: String) -> String:
-	## 本阶段只有 m01_afterglow；后续地图在定义中登记场景路径后扩展。
-	if map_id == "m01_afterglow":
-		return DEFAULT_SCENE
-	return DEFAULT_SCENE
+	return "res://maps/%s/map.tscn" % map_id
+
+
+func _map_id_for_scene(scene_path: String) -> String:
+	return scene_path.get_base_dir().get_file()
+
+
+func _manifest_for_scene(scene_path: String) -> String:
+	return "%s/build_manifest.json" % scene_path.get_base_dir()
 
 
 func _set_job(job_id: String, state: String, message: String) -> void:
@@ -89,10 +95,8 @@ func _run_auto_bake_job(job_id: String, scene_path: String) -> void:
 	var pre := _precheck(root, lm)
 	if not pre.get("ok", false):
 		return _fail(job_id, "前置检查失败: %s" % str(pre.get("message", "")))
-	# 预保存空 LightmapGIData（bake() 要求已有保存路径）；固定落在 baked/ 下
-	var data_path := "res://maps/m01_afterglow/baked/map_lightmap.res"
-	if scene_path != DEFAULT_SCENE:
-		data_path = scene_path.get_basename() + "_lightmap.res"
+	# 预保存空 LightmapGIData（bake() 要求已有保存路径）；统一落 baked/map_lightmap.res
+	var data_path := "%s/baked/map_lightmap.res" % scene_path.get_base_dir()
 	DirAccess.make_dir_recursive_absolute(data_path.get_base_dir())
 	var data := LightmapGIData.new()
 	var save_err := ResourceSaver.save(data, data_path)
@@ -112,7 +116,7 @@ func _run_auto_bake_job(job_id: String, scene_path: String) -> void:
 		return _fail(job_id, "未找到烘焙按钮")
 	print("NEON_BAKE[%s]: 触发按钮 '%s'" % [job_id, btn.text])
 	_set_job(job_id, "running", "烘焙中")
-	bake_started.emit(job_id, StringName("m01_afterglow"))
+	bake_started.emit(job_id, StringName(_map_id_for_scene(scene_path)))
 	btn.pressed.emit()
 	# 等待烘焙完成：以 LightmapGIData 用户数 > 0 且趋于稳定为准（不依赖固定秒数）
 	var waited := 0.0
@@ -149,7 +153,7 @@ func _run_auto_bake_job(job_id: String, scene_path: String) -> void:
 	await get_tree().create_timer(1.5).timeout
 	print("NEON_BAKE[%s]: light_data = %s" % [job_id, lm.light_data.resource_path])
 	# 回写构建清单
-	_update_manifest(job_id, actual)
+	_update_manifest(job_id, actual, _manifest_for_scene(scene_path))
 	_set_job(job_id, "succeeded", "users=%d" % actual.size())
 	var report := {"users": actual, "expected": expected, "missing": missing}
 	_write_report(job_id, missing.is_empty() or actual.size() > 0, "", report)
@@ -252,11 +256,11 @@ func _diff_paths(expected: Array[String], actual: Array[String]) -> Array[String
 
 # ============================ 清单与报告 ============================
 
-func _update_manifest(job_id: String, actual: Array[String]) -> void:
-	if not FileAccess.file_exists(MANIFEST_PATH):
+func _update_manifest(job_id: String, actual: Array[String], manifest_path: String) -> void:
+	if not FileAccess.file_exists(manifest_path):
 		print("NEON_BAKE: 清单不存在，跳过回写")
 		return
-	var txt := FileAccess.get_file_as_string(MANIFEST_PATH)
+	var txt := FileAccess.get_file_as_string(manifest_path)
 	var manifest = JSON.parse_string(txt)
 	if not manifest is Dictionary:
 		print("NEON_BAKE: 清单 JSON 非法，跳过回写")
@@ -268,7 +272,7 @@ func _update_manifest(job_id: String, actual: Array[String]) -> void:
 		arr.append(p)
 	manifest["actual_baked_user_paths"] = arr
 	manifest["bake_finished_utc"] = Time.get_datetime_string_from_system(true)
-	var f := FileAccess.open(MANIFEST_PATH, FileAccess.WRITE)
+	var f := FileAccess.open(manifest_path, FileAccess.WRITE)
 	f.store_string(JSON.stringify(manifest, "  "))
 	f.close()
 	print("NEON_BAKE: 清单已回写 bake_status=succeeded")

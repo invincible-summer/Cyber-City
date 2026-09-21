@@ -204,6 +204,13 @@ func _build_metadata(request_id: int, label: String, img: Image) -> Dictionary:
 		if pose != null:
 			meta["camera_pose"] = pose.to_dict()
 			meta["anchor_id"] = String(pose.anchor_id)
+	# chapter1-2 §9.4：截图瞬间的渲染计数（与诊断面板同源），随 JSON 可读
+	meta["render_stats"] = {
+		"fps": Engine.get_frames_per_second(),
+		"draw_calls": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+		"primitives": RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+		"video_mem_mb": roundf(RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_VIDEO_MEM_USED) / 1048576.0),
+	}
 	return meta
 
 

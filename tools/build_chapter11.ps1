@@ -7,7 +7,7 @@ param(
     [string]$ProjectPath = ".",
     [ValidateSet("validate", "generate", "assemble", "bake", "verify", "export", "all")]
     [string]$Stage = "all",
-    [ValidateSet("m01_afterglow")]
+    [ValidateSet("m01_afterglow", "m01_repair_interior", "both")]
     [string]$MapId = "m01_afterglow"
 )
 
@@ -48,47 +48,70 @@ function Step-Validate {
     Write-Host "validate 通过"
 }
 
+function Get-MapIds {
+    if ($MapId -eq "both") { return @("m01_afterglow", "m01_repair_interior") }
+    return @($MapId)
+}
+
 function Step-Generate {
     # 生成可重建层（保留 authored）：纹理 → 招牌（固定字体） → 城市生成层 → 精修层
-    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/gen_textures.gd") "generate/textures"
-    & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "导入失败" }
-    # 招牌需要窗口环境栅格化（SubViewport + 字体渲染）
-    Write-Host "== generate/signs ==" -ForegroundColor Cyan
-    & $G --path $ProjectPath res://tools/run_gen_signs.tscn 2>&1 | Tee-Object -Variable sout
-    if ($LASTEXITCODE -ne 0) { throw "招牌生成失败" }
-    if (($sout -join "`n") -notmatch "SIGNS_DONE") { throw "招牌生成未完成（未见 SIGNS_DONE）" }
-    & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
-    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_m01.gd") "generate/city"
-    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_authored.gd") "generate/authored"
-    & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "导入失败" }
+    # 街区图纹理/招牌共享；室内图只跑 build_interior（无 authored/signs 依赖）。
+    foreach ($mid in Get-MapIds) {
+        if ($mid -eq "m01_repair_interior") {
+            Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_interior.gd") "generate/interior"
+            continue
+        }
+    }
+    if ((Get-MapIds) -contains "m01_afterglow") {
+        Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/gen_textures.gd") "generate/textures"
+        & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "导入失败" }
+        # 招牌需要窗口环境栅格化（SubViewport + 字体渲染）
+        Write-Host "== generate/signs ==" -ForegroundColor Cyan
+        & $G --path $ProjectPath res://tools/run_gen_signs.tscn 2>&1 | Tee-Object -Variable sout
+        if ($LASTEXITCODE -ne 0) { throw "招牌生成失败" }
+        if (($sout -join "`n") -notmatch "SIGNS_DONE") { throw "招牌生成未完成（未见 SIGNS_DONE）" }
+        & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
+        Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_m01.gd") "generate/city"
+        Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_authored.gd") "generate/authored"
+        & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "导入失败" }
+    }
 }
 
 function Step-Assemble {
-    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/assemble_m01.gd") "assemble"
+    foreach ($mid in Get-MapIds) {
+        $script = "res://tools/assemble_m01.gd"
+        if ($mid -eq "m01_repair_interior") { $script = "res://tools/assemble_interior.gd" }
+        Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", $script) "assemble/$mid"
+    }
     & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "导入失败" }
 }
 
 function Step-Bake {
     # 真实图形编辑器中烘焙（addons/neon_bake 按钮）；NEON_BAKE_EXIT 判定结果
-    Write-Host "== bake（编辑器内烘焙，最长 15 分钟） ==" -ForegroundColor Cyan
-    & $G --path $ProjectPath --editor -- --auto-bake 2>&1 | Tee-Object -Variable bout
-    $outText = $bout -join "`n"
-    if ($outText -match "NEON_BAKE_EXIT=(\d)") {
-        if ([int]$Matches[1] -ne 0) { throw "烘焙失败（NEON_BAKE_EXIT=$($Matches[1])），见 artifacts/chapter1_1/bake_report_*.json" }
-    } else {
-        throw "烘焙未给出结束标记（NEON_BAKE_EXIT 缺失）——编辑器可能仍打开，请检查"
+    foreach ($mid in Get-MapIds) {
+        Write-Host "== bake $mid（编辑器内烘焙，最长 15 分钟） ==" -ForegroundColor Cyan
+        & $G --path $ProjectPath --editor -- --auto-bake --scene "res://maps/$mid/map.tscn" 2>&1 | Tee-Object -Variable bout
+        $outText = $bout -join "`n"
+        if ($outText -match "NEON_BAKE_EXIT=(\d)") {
+            if ([int]$Matches[1] -ne 0) { throw "烘焙失败（NEON_BAKE_EXIT=$($Matches[1])），见 artifacts/chapter1_2/bake_report_*.json" }
+        } else {
+            throw "烘焙未给出结束标记（NEON_BAKE_EXIT 缺失）——编辑器可能仍打开，请检查"
+        }
     }
     & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
     Write-Host "bake 完成"
 }
 
 function Step-Verify {
-    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/verify_build.gd") "verify"
+    foreach ($mid in Get-MapIds) {
+        Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/verify_build.gd", "--", "--map", $mid) "verify/$mid"
+    }
     Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_map_lifecycle.gd") "verify/lifecycle"
     Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_chapter11_contract.gd") "verify/contract"
+    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_chapter12_contract.gd") "verify/contract12"
 }
 
 function Step-Export {

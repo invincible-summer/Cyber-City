@@ -41,6 +41,7 @@ var _load_token: int = 0                # 本事务持有的活动 token；0 = �
 var _tx_valid := false                  # 异步继续点检查事务是否仍有效
 var _orphan_paths: Dictionary = {}      # 放弃但线程尚未终结的加载路径 -> true
 var _pending_reload_after_unload: StringName = &""
+var _pending_entry_anchor: StringName = &""  # 门户进入指定锚点（chapter1-2 §4.4）
 var _last_error: String = ""
 var _load_request_msec: int = 0
 
@@ -133,7 +134,8 @@ func get_state_snapshot() -> Dictionary:
 
 
 func get_camera_contract() -> Dictionary:
-	## 值副本：{map_id, bounds, exclusions, anchor_ids, default_anchor}；无图返回空 Dictionary。
+	## 值副本：{map_id, bounds, exclusions, anchor_ids, default_anchor,
+	##        camera_mode, walk_surfaces, portals}；无图返回空 Dictionary。
 	if state != State.READY or current_map_id == &"":
 		return {}
 	var def := _get_definition(String(current_map_id))
@@ -148,6 +150,9 @@ func get_camera_contract() -> Dictionary:
 		"exclusions": def.camera_exclusion_bounds.duplicate(),
 		"anchor_ids": anchor_ids,
 		"default_anchor": StringName(def.default_anchor),
+		"camera_mode": def.camera_mode,
+		"walk_surfaces": def.walk_surfaces.duplicate(),
+		"portals": def.get_portal_copies(),
 	}
 
 
@@ -155,7 +160,8 @@ func get_camera_contract() -> Dictionary:
 
 ## 请求切换地图。只允许一个切换事务；无效请求在卸载前被拒绝（状态不变）。
 ## 相同地图且 force_reload=false：幂等返回 OK，不启动新事务、不发布 loaded。
-func request_map(map_id: StringName, force_reload: bool = false) -> Error:
+## entry_anchor：门户进入时指定的落点锚点；缺省用地图默认锚点。
+func request_map(map_id: StringName, force_reload: bool = false, entry_anchor: StringName = &"") -> Error:
 	var mid := String(map_id)
 	if is_busy():
 		push_warning("MapManager: 切换进行中(%s)，忽略重复请求 %s" % [STATE_NAMES[state], mid])
@@ -167,10 +173,16 @@ func request_map(map_id: StringName, force_reload: bool = false) -> Error:
 	var def := _validate_request(mid)
 	if def == null:
 		return ERR_INVALID_PARAMETER  # 已发 map_failed；状态保持原状
+	if entry_anchor != &"" and not def.anchor_names.is_empty() \
+			and not def.anchor_names.has(String(entry_anchor)):
+		_last_error = "入口锚点不存在于目标地图: %s" % String(entry_anchor)
+		map_failed.emit(map_id, 0, ERR_INVALID_PARAMETER, _last_error)
+		return ERR_INVALID_PARAMETER
 	if _orphan_paths.has(def.scene_path):
 		push_warning("MapManager: 同路径存在未收尾的孤儿加载 %s" % def.scene_path)
 		return ERR_BUSY
 	# 受理事务
+	_pending_entry_anchor = entry_anchor
 	_transaction_id = _next_transaction_id
 	_next_transaction_id += 1
 	_tx_valid = true
@@ -369,6 +381,7 @@ func _fail_load(err: Error, message: String) -> void:
 	var tx := _transaction_id
 	_tx_valid = false
 	_loading_id = &""
+	_pending_entry_anchor = &""
 	set_process(false)
 	_last_error = message
 	map_failed.emit(map_id, tx, err, message)
@@ -402,6 +415,8 @@ func _activate_loaded_scene() -> void:
 	map_root.definition = def
 	_map_slot.add_child(map_root)
 	_map_slot.move_child(map_root, 0)
+	# 组恢复（meta → groups；_ready 已做一次，此处幂等兜底，见 map_root.restore_runtime_groups）
+	map_root.restore_runtime_groups()
 	# 运行时合同校验（锚点/环境/烘焙/区域路径）
 	var contract_errors := map_root.validate_runtime_contract()
 	if not contract_errors.is_empty():
@@ -416,15 +431,18 @@ func _activate_loaded_scene() -> void:
 			_fail_activation(map_id, tx, qerr, "质量档应用失败")
 			return
 	if _camera != null:
-		_camera.bind_map_contract(StringName(def.map_id), map_root.get_camera_bounds(), map_root.get_camera_exclusion_bounds())
-		var default_pose := map_root.get_anchor_pose(StringName(def.default_anchor))
+		_camera.bind_map_contract(StringName(def.map_id), map_root.get_camera_bounds(), map_root.get_camera_exclusion_bounds(), map_root.get_camera_mode(), map_root.get_walk_surfaces())
+		# 落点锚点：门户进入锚点优先，否则地图默认锚点
+		var entry_id := _pending_entry_anchor if _pending_entry_anchor != &"" else StringName(def.default_anchor)
+		var default_pose := map_root.get_anchor_pose(entry_id)
 		if default_pose == null:
-			_fail_activation(map_id, tx, ERR_CANT_CREATE, "默认锚点不可用: %s" % def.default_anchor)
+			_fail_activation(map_id, tx, ERR_CANT_CREATE, "落点锚点不可用: %s" % String(entry_id))
 			return
 		var perr: Error = _camera.apply_pose(default_pose, true)
 		if perr != OK:
-			_fail_activation(map_id, tx, perr, "默认机位应用失败")
+			_fail_activation(map_id, tx, perr, "落点机位应用失败")
 			return
+	_pending_entry_anchor = &""
 	last_activation_ms = float(Time.get_ticks_msec() - act_start)
 	_tx_valid = false
 	_release_token()
@@ -433,18 +451,23 @@ func _activate_loaded_scene() -> void:
 
 
 func _fail_activation(map_id: StringName, tx: int, err: Error, reason: String) -> void:
-	_set_state(State.ERROR)
 	_tx_valid = false
+	_pending_entry_anchor = &""
 	_last_error = reason
-	map_failed.emit(map_id, tx, err, reason)
-	# 清理任何部分实例后回到 EMPTY，允许重试
+	# 先同步清理部分实例（移出场景树后 active_map_root 计数立即归零），
+	# 再发布失败信号——订阅者在回调里读到的是已清理状态（chapter1-2 §9.1 T10）。
 	for child in _map_slot.get_children():
+		if child is MapRoot:
+			(child as MapRoot).begin_deactivation()
+		_map_slot.remove_child(child)
 		child.queue_free()
 	current_map_id = &""
 	_packed_scene = null
 	if _camera != null:
 		_camera.unbind_map()
 	_release_token()
+	_set_state(State.ERROR)
+	map_failed.emit(map_id, tx, err, reason)
 	_set_state(State.EMPTY)
 
 

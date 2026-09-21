@@ -65,6 +65,7 @@ func _run() -> void:
 
 	mm.inject_registry({
 		"m01_afterglow": "res://maps/m01_afterglow/map_definition.tres",
+		"m01_repair_interior": "res://maps/m01_repair_interior/map_definition.tres",
 		"test_mini_map": "res://tests/fixtures/mini_test_map_definition.tres",
 		"broken_scene": "user://broken_scene_def.tres",
 		"broken_anchor": "user://broken_anchor_def.tres",
@@ -135,6 +136,40 @@ func _run() -> void:
 	if base_mem > 0.0:
 		_check(base_mem - end_mem < maxf(150.0, 0.0),
 			"预热后可用内存下降 %.0f MiB 在阈值内（<150 MiB）" % (base_mem - end_mem))
+
+	# 6b. chapter1-2 T10：生产双图（街区 ↔ 室内）完整往返 ×10 + 资源隔离
+	var interior_mesh_res: Resource = load("res://maps/m01_repair_interior/meshes/interior_static.res")
+	var street_mesh_weak: WeakRef = weakref(m01_mesh_res)
+	var prod_base_mem := 0.0
+	var prod_mem_trend: Array[float] = []
+	for i in ROUND_TRIPS:
+		var weak_street := _root_weak()
+		m01_mesh_res = null  # 只留弱引用观察街区资源回收
+		mm.request_map(StringName("m01_repair_interior"))
+		_check(await _await_loaded("m01_repair_interior", 30.0), "双图轮 %d：室内加载完成" % (i + 1))
+		_check(mm.get_active_root_count() <= 1, "双图轮 %d：切换中活动地图 ≤1" % (i + 1))
+		_check(await _weak_dead(weak_street), "双图轮 %d：街区根弱引用失效" % (i + 1))
+		_check(await _weak_dead(street_mesh_weak), "双图轮 %d：街区网格资源引用失效" % (i + 1))
+		var weak_interior := _root_weak()
+		var interior_mesh_weak: WeakRef = weakref(interior_mesh_res)
+		interior_mesh_res = null
+		mm.request_map(StringName("m01_afterglow"))
+		_check(await _await_loaded("m01_afterglow", 30.0), "双图轮 %d：街区加载完成" % (i + 1))
+		_check(await _weak_dead(weak_interior), "双图轮 %d：室内根弱引用失效" % (i + 1))
+		_check(await _weak_dead(interior_mesh_weak), "双图轮 %d：室内网格资源引用失效" % (i + 1))
+		m01_mesh_res = load("res://maps/m01_afterglow/meshes/baked_static.res")
+		interior_mesh_res = load("res://maps/m01_repair_interior/meshes/interior_static.res")
+		var mem2 := float(OS.get_memory_info().get("available", 0)) / (1024.0 * 1024.0)
+		prod_mem_trend.append(mem2)
+		if i == 4:
+			prod_base_mem = mem2
+		if i >= 4:
+			print("  双图内存趋势轮 %d: 可用 %.0f MiB (基准 %.0f)" % [i + 1, mem2, prod_base_mem])
+	var prod_end_mem := float(OS.get_memory_info().get("available", 0)) / (1024.0 * 1024.0)
+	if prod_base_mem > 0.0:
+		_check(prod_base_mem - prod_end_mem < 150.0,
+			"双图预热后可用内存下降 %.0f MiB 在阈值内（<150 MiB）" % (prod_base_mem - prod_end_mem))
+	interior_mesh_res = null
 
 	# 7. T04 切换中重复请求被拒
 	mm.request_map(StringName("test_mini_map"))

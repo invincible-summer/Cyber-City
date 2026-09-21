@@ -242,6 +242,7 @@ func _build_props(root: Node3D) -> void:
 	mi.name = "BakedProps"
 	mi.mesh = mesh
 	mi.add_to_group("detail_props")
+	mi.set_meta("node_groups", PackedStringArray(["detail_props"]))
 	props.add_child(mi)
 	_own(props, root)
 
@@ -864,6 +865,7 @@ func _build_lighting(root: Node3D) -> void:
 	sun.light_energy = 2.9
 	sun.light_bake_mode = Light3D.BAKE_STATIC
 	sun.transform = Transform3D(Basis(), Vector3.ZERO).looking_at(Vector3(0.52, -0.16, 0.4).normalized(), Vector3.UP)
+	sun.set_meta("node_groups", PackedStringArray(["bake_only_light"]))
 	lighting.add_child(sun)
 	# 烘焙灯（运行时隐藏）
 	for L in lights_spec:
@@ -875,6 +877,7 @@ func _build_lighting(root: Node3D) -> void:
 		o.light_bake_mode = Light3D.BAKE_STATIC
 		o.shadow_enabled = false
 		o.add_to_group("bake_only_light")
+		o.set_meta("node_groups", PackedStringArray(["bake_only_light"]))
 		lighting.add_child(o)
 	# 均衡档补光（≤2，无阴影）
 	var extra1 := OmniLight3D.new()
@@ -885,6 +888,7 @@ func _build_lighting(root: Node3D) -> void:
 	extra1.shadow_enabled = false
 	extra1.visible = false
 	extra1.add_to_group("runtime_fill_light")
+	extra1.set_meta("node_groups", PackedStringArray(["runtime_fill_light"]))
 	lighting.add_child(extra1)
 	var extra2 := OmniLight3D.new()
 	extra2.position = Vector3(21.0, 2.6, -57.5)
@@ -894,6 +898,7 @@ func _build_lighting(root: Node3D) -> void:
 	extra2.shadow_enabled = false
 	extra2.visible = false
 	extra2.add_to_group("runtime_fill_light")
+	extra2.set_meta("node_groups", PackedStringArray(["runtime_fill_light"]))
 	lighting.add_child(extra2)
 	# 均衡档反射探针（≤2，Once）
 	var probe1 := ReflectionProbe.new()
@@ -902,6 +907,7 @@ func _build_lighting(root: Node3D) -> void:
 	probe1.update_mode = ReflectionProbe.UPDATE_ONCE
 	probe1.visible = false
 	probe1.add_to_group("optional_probe")
+	probe1.set_meta("node_groups", PackedStringArray(["optional_probe"]))
 	lighting.add_child(probe1)
 	var probe2 := ReflectionProbe.new()
 	probe2.position = Vector3(0, 3.5, -18)
@@ -909,6 +915,7 @@ func _build_lighting(root: Node3D) -> void:
 	probe2.update_mode = ReflectionProbe.UPDATE_ONCE
 	probe2.visible = false
 	probe2.add_to_group("optional_probe")
+	probe2.set_meta("node_groups", PackedStringArray(["optional_probe"]))
 	lighting.add_child(probe2)
 	_own(lighting, root)
 

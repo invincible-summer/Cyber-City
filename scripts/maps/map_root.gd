@@ -25,7 +25,24 @@ func _enter_tree() -> void:
 
 func _ready() -> void:
 	_ambient = get_node_or_null("Ambient")
+	restore_runtime_groups()
 	_setup_ambient()
+
+
+## PackedScene 不保存节点 groups（Godot 4.7 实测）；构建脚本把组名写进
+## meta "node_groups"（PackedStringArray）。_ready 与 MapManager 激活期各调用一次（幂等）。
+## 依赖组的运行时逻辑：bake_only_light / detail_props / runtime_fill_light /
+## optional_probe / portal_door（chapter1-2 §4.4）。
+func restore_runtime_groups() -> void:
+	_register_groups_from_meta(self)
+
+
+func _register_groups_from_meta(node: Node) -> void:
+	if node is Node3D and node.has_meta("node_groups"):
+		for g in node.get_meta("node_groups"):
+			node.add_to_group(str(g))
+	for child in node.get_children():
+		_register_groups_from_meta(child)
 
 
 # ============================ 合同校验 ============================
@@ -67,6 +84,26 @@ func validate_runtime_contract() -> PackedStringArray:
 	# 区域清单
 	if not definition.region_manifest_path.is_empty() and not FileAccess.file_exists(definition.region_manifest_path):
 		errors.append("region_manifest_path 不存在: %s" % definition.region_manifest_path)
+	# 步行合同（chapter1-2 §4.1）：walk 图必须有行走面；每面中心+眼高样本点
+	# 须落在整体边界内且不进任何禁入盒（防"出生即卡墙"的坏定义）。
+	if definition.camera_mode == "walk":
+		if definition.walk_surfaces.is_empty():
+			errors.append("walk 模式缺少 walk_surfaces")
+		else:
+			var b := definition.camera_bounds
+			for s in definition.walk_surfaces:
+				var eye := (s as AABB).position + (s as AABB).size * 0.5 + Vector3(0.0, CONTRACT_EYE_HEIGHT, 0.0)
+				if not b.grow(0.25).has_point(eye):
+					errors.append("行走面眼高样本点超出边界: %s" % str(eye))
+					break
+				var blocked := false
+				for box in definition.camera_exclusion_bounds:
+					if (box as AABB).has_point(eye):
+						blocked = true
+						break
+				if blocked:
+					errors.append("行走面眼高样本点位于禁入体积内: %s" % str(eye))
+					break
 	return errors
 
 
@@ -145,6 +182,66 @@ func get_camera_exclusion_bounds() -> Array[AABB]:
 	return definition.camera_exclusion_bounds.duplicate()
 
 
+# ============================ 步行合同（chapter1-2 §4） ============================
+
+## 与 camera_controller.gd 的 EYE_HEIGHT 是同一合同常量（成对维护）。
+const CONTRACT_EYE_HEIGHT := 1.62
+
+func get_camera_mode() -> String:
+	if definition == null:
+		return "fly"
+	return definition.camera_mode
+
+
+func get_walk_surfaces() -> Array[AABB]:
+	if definition == null:
+		return []
+	return definition.walk_surfaces.duplicate()
+
+
+func get_portals() -> Array[Dictionary]:
+	if definition == null:
+		return []
+	return definition.get_portal_copies()
+
+
+# ============================ 门户门扇（chapter1-2 §3.10） ============================
+
+## 开/合本图全部门户门扇（meta node_groups 含 portal_door 的枢轴，meta swing_deg=开角）。
+## 幂等：状态一致时不重启 Tween；地图失活时 Tween 随 _tweens 清理。
+func set_portal_door_open(open: bool) -> void:
+	_visit_portal_doors(self, open)
+
+
+func _visit_portal_doors(node: Node, open: bool) -> void:
+	if node is Node3D and node.has_meta("node_groups"):
+		if (node.get_meta("node_groups") as PackedStringArray).has("portal_door"):
+			_set_door_open(node as Node3D, open)
+	for child in node.get_children():
+		_visit_portal_doors(child, open)
+
+
+func _set_door_open(pivot: Node3D, open: bool) -> void:
+	if bool(pivot.get_meta("portal_door_open", false)) == open:
+		return
+	pivot.set_meta("portal_door_open", open)
+	_kill_door_tween(pivot)
+	var target := deg_to_rad(float(pivot.get_meta("swing_deg", 90.0))) if open else 0.0
+	var axis: String = str(pivot.get_meta("swing_axis", "y"))
+	var tw := create_tween()
+	tw.set_meta("door_pivot_id", pivot.get_instance_id())
+	tw.tween_property(pivot, "rotation:" + axis, target, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tweens.append(tw)
+
+
+func _kill_door_tween(pivot: Node3D) -> void:
+	for i in range(_tweens.size() - 1, -1, -1):
+		var tw = _tweens[i]
+		if tw is Tween and tw.is_valid() and int(tw.get_meta("door_pivot_id", 0)) == pivot.get_instance_id():
+			tw.kill()
+			_tweens.remove_at(i)
+
+
 # ============================ 画质档应用 ============================
 
 ## 画质档应用。profile 由 QualityController 提供，包含：
@@ -162,9 +259,7 @@ func apply_quality(profile: Dictionary) -> Error:
 	if env_node != null and env_node.environment != null:
 		env_node.environment.glow_enabled = bool(profile.get("glow", false))
 	var range_end: float = float(profile.get("detail_prop_range", 150.0))
-	for node in get_tree().get_nodes_in_group("detail_props"):
-		if node is GeometryInstance3D and is_ancestor_of(node):
-			(node as GeometryInstance3D).visibility_range_end = range_end
+	_apply_detail_range_by_meta(self, range_end)
 	_apply_region_detail_ranges(range_end)
 	for item in _ambient_particles:
 		var p := item["node"] as GPUParticles3D
@@ -175,6 +270,15 @@ func apply_quality(profile: Dictionary) -> Error:
 	if _ambient != null:
 		_ambient.visible = true
 	return OK
+
+
+## 按持久化 meta 遍历（组缓存要等帧边界才可见，激活栈内查询会扑空——4.7 实测）。
+func _apply_detail_range_by_meta(node: Node, range_end: float) -> void:
+	if node is GeometryInstance3D and node.has_meta("node_groups"):
+		if (node.get_meta("node_groups") as PackedStringArray).has("detail_props"):
+			(node as GeometryInstance3D).visibility_range_end = range_end
+	for child in node.get_children():
+		_apply_detail_range_by_meta(child, range_end)
 
 
 ## 区域小装饰可见距离（chapter1-1 §6.3）：只影响 region manifest 标记的 detail 根，
@@ -213,11 +317,16 @@ func _set_detail_range_recursive(node: Node, end_m: float, cam: Camera3D) -> voi
 
 
 func _apply_group_visibility(group_name: String, visible_flag: bool) -> void:
-	## 只处理本地图子树内的节点，避免误伤外壳。
-	for node in get_tree().get_nodes_in_group(group_name):
-		var n := node as Node3D
-		if n != null and is_ancestor_of(n):
-			n.visible = visible_flag
+	## 按持久化 meta 遍历本地图子树（不依赖 SceneTree 组缓存帧边界），避免误伤外壳。
+	_apply_visibility_by_meta(self, group_name, visible_flag)
+
+
+func _apply_visibility_by_meta(node: Node, group_name: String, visible_flag: bool) -> void:
+	if node is Node3D and node.has_meta("node_groups"):
+		if (node.get_meta("node_groups") as PackedStringArray).has(group_name):
+			(node as Node3D).visible = visible_flag
+	for child in node.get_children():
+		_apply_visibility_by_meta(child, group_name, visible_flag)
 
 
 # ============================ 环境动画：暂停 / 固定时间 / 快照 ============================

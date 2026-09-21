@@ -36,16 +36,16 @@ _surfaces = [{
 background_mode = 1
 background_color = Color(0.2, 0.24, 0.3, 1)
 
-[node name="MiniTestMap" type="Node3D" unique_id=189713916]
+[node name="MiniTestMap" type="Node3D" unique_id=982600052]
 script = ExtResource("1_ww08p")
 
-[node name="@MeshInstance3D@28" type="MeshInstance3D" parent="." unique_id=6817151]
+[node name="@MeshInstance3D@28" type="MeshInstance3D" parent="." unique_id=1868663432]
 mesh = SubResource("ArrayMesh_1p4vk")
 
-[node name="Environment" type="WorldEnvironment" parent="." unique_id=61844203]
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=1834117275]
 environment = SubResource("Environment_181mj")
 
-[node name="CameraAnchors" type="Node3D" parent="." unique_id=23707458]
+[node name="CameraAnchors" type="Node3D" parent="." unique_id=1217608594]
 
-[node name="test_anchor" type="Marker3D" parent="CameraAnchors" unique_id=1152900996]
+[node name="test_anchor" type="Marker3D" parent="CameraAnchors" unique_id=1810288765]
 transform = Transform3D(0.7071068, 0, 0.70710677, 0, 1, 0, -0.7071068, 0, 0.70710677, 8, 2, 8)

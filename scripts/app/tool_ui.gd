@@ -13,6 +13,7 @@ var info_panel: PanelContainer
 var map_label: Label
 var quality_buttons: Dictionary = {}   # id -> Button
 var hint_label: Label
+var portal_label: Label
 var menu_panel: PanelContainer
 var menu_box: VBoxContainer
 var menu_map_box: VBoxContainer
@@ -92,6 +93,25 @@ func _build_hint() -> void:
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint_label.add_theme_color_override("font_color", Color(0.85, 0.92, 0.93, 0.8))
 	root_control.add_child(hint_label)
+	# 门户提示（chapter1-2 §4.4）：进入门户半径时出现
+	portal_label = _new_label("", 20)
+	portal_label.set_anchors_preset(Control.PRESET_CENTER)
+	portal_label.position = Vector2(-260, 96)
+	portal_label.custom_minimum_size = Vector2(520, 0)
+	portal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	portal_label.add_theme_color_override("font_color", Color(0.45, 0.92, 0.89, 0.96))
+	portal_label.visible = false
+	root_control.add_child(portal_label)
+
+
+func show_portal_hint(text: String) -> void:
+	portal_label.text = text
+	portal_label.visible = true
+
+
+func hide_portal_hint() -> void:
+	portal_label.visible = false
+	portal_label.text = ""
 
 
 func _build_menu() -> void:
@@ -213,14 +233,17 @@ func set_quality(id: String, _label_text: String) -> void:
 		b.button_pressed = (k == id)
 
 
-func set_anchor_hint(anchor_names: PackedStringArray) -> void:
+func set_anchor_hint(anchor_names: PackedStringArray, walk_mode: bool = false) -> void:
+	var move_hint := "右键拖动观察 · WASD 步行 · Shift 快走 · 滚轮调速 · 楼梯可直接走上/走下"
+	if not walk_mode:
+		move_hint = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速 · Home 默认"
 	if anchor_names.is_empty():
 		hint_label.text = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签"
 		return
 	var parts := PackedStringArray()
 	for i in anchor_names.size():
 		parts.append("%d=%s" % [i + 1, anchor_names[i]])
-	hint_label.text = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速 · Home 默认\n%s\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签" % " · ".join(parts)
+	hint_label.text = "%s\n%s\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签" % [move_hint, " · ".join(parts)]
 
 
 func set_busy(busy: bool, text: String = "") -> void:

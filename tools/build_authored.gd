@@ -19,6 +19,7 @@ var exclusions: Array[AABB] = []
 var anchors: Dictionary = {}
 var flickers: Array = []
 var particles: Array = []
+var portals: Array = []
 var region_manifest_path := ""
 
 const KEYS := {
@@ -51,6 +52,16 @@ func _run() -> void:
 	# roof_terrace_view：露台西南角沿对角线望向主街与天际线；
 	#   避开设备箱区（x -66.2…-62.8, z 3.2…12.8）与楼梯间（x -52.5…-46.5, z 0.8…5.2）。
 	anchors["roof_terrace_view"] = {"pos": [-61.5, 10.6, 14.0], "look": [-25.0, 9.0, 4.5]}
+	# 维修铺门口锚点（chapter1-2 §3.10 门户落点；卷帘门行人小门在 z≈33.3）
+	anchors["repair_shop_door"] = {"pos": [29.8, 1.7, 33.2], "look": [36.0, 2.0, 33.3]}
+	# 门户：门外 → 店内地图（chapter1-2 §4.4）
+	portals.append({
+		"pos": [30.0, 1.7, 33.3],
+		"radius": 2.2,
+		"target_map_id": "m01_repair_interior",
+		"target_anchor": "entry_view",
+		"label": "进入 余晖维修·店内",
+	})
 
 	# 三处扩展区域的静态几何与道具
 	var geom := Node3D.new()
@@ -75,6 +86,7 @@ func _run() -> void:
 		{"name": "PropsServiceCourt", "build": _service_court_props},
 		{"name": "PropsStationForecourt", "build": _station_forecourt_props},
 		{"name": "PropsRoofTerrace", "build": _roof_terrace_props},
+		{"name": "PropsStreetEnrich", "build": _street_enrich_props},
 	]
 	var total_prop_tris := 0
 	for region in prop_regions:
@@ -88,6 +100,7 @@ func _run() -> void:
 		mi_props.name = str(region["name"])
 		mi_props.mesh = mesh_props
 		mi_props.add_to_group("detail_props")
+		mi_props.set_meta("node_groups", PackedStringArray(["detail_props"]))
 		props.add_child(mi_props)
 	print("authored props: tris=", total_prop_tris)
 	root.add_child(props)
@@ -103,8 +116,46 @@ func _run() -> void:
 		o.light_bake_mode = Light3D.BAKE_STATIC
 		o.shadow_enabled = false
 		o.add_to_group("bake_only_light")
+		o.set_meta("node_groups", PackedStringArray(["bake_only_light"]))
 		lighting.add_child(o)
 	root.add_child(lighting)
+
+	# 门户门扇（chapter1-2 §3.10）：卷帘门上的行人小门，铰链 z 32.85，向街面(-X)开
+	var mb_door := GL.MeshBuilder.new()
+	mb_door.box("door_dark", Vector3(-0.035, 0.0, 0.0), Vector3(0.035, 2.1, 0.95), 0.55, 26.0)
+	mb_door.box("metal_dark", Vector3(-0.04, 0.0, -0.02), Vector3(0.04, 0.14, 0.97), 0.7, 22.0)
+	mb_door.box("metal_dark", Vector3(-0.04, 1.96, -0.02), Vector3(0.04, 2.14, 0.97), 0.7, 22.0)
+	var guv := Vector2(0.34 * 20.0 / GL.ATLAS_PX, 0.42 * 20.0 / GL.ATLAS_PX)
+	mb_door.quad("lit_warm", Vector3(0.041, 1.35, 0.6), Vector3(0.041, 1.35, 0.26),
+		Vector3(0.041, 1.77, 0.26), Vector3(0.041, 1.77, 0.6), Vector3(1, 0, 0),
+		[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
+	mb_door.box("metal_teal", Vector3(-0.1, 0.95, 0.83), Vector3(-0.045, 1.01, 0.91), 0.7, 16.0)
+	var door_mesh := mb_door.commit(mats, "%s/authored_door_leaf.res" % AUTHORED_MESH_DIR, Vector2i(256, 256))
+	var doors := Node3D.new()
+	doors.name = "AuthoredPortalDoors"
+	var pivot := Node3D.new()
+	pivot.name = "ShopDoorPivot"
+	pivot.position = Vector3(32.95, 0.0, 32.85)
+	pivot.add_to_group("portal_door")
+	pivot.set_meta("node_groups", PackedStringArray(["portal_door"]))
+	pivot.set_meta("swing_deg", -100.0)
+	pivot.set_meta("swing_axis", "y")
+	var mi_door := MeshInstance3D.new()
+	mi_door.name = "DoorLeaf"
+	mi_door.mesh = door_mesh
+	pivot.add_child(mi_door)
+	doors.add_child(pivot)
+	root.add_child(doors)
+	# 小门框（贴卷帘门面，静态）
+	var mb_frame := GL.MeshBuilder.new()
+	mb_frame.box("metal_dark", Vector3(32.8, 0.0, 32.78), Vector3(33.1, 2.2, 32.86), 0.7, 20.0)
+	mb_frame.box("metal_dark", Vector3(32.8, 0.0, 33.82), Vector3(33.1, 2.2, 33.9), 0.7, 20.0)
+	mb_frame.box("metal_dark", Vector3(32.8, 2.1, 32.78), Vector3(33.1, 2.2, 33.9), 0.7, 20.0)
+	var frame_mesh := mb_frame.commit(mats, "%s/authored_door_frame.res" % AUTHORED_MESH_DIR, Vector2i(256, 256))
+	var mi_frame := MeshInstance3D.new()
+	mi_frame.name = "DoorFrame"
+	mi_frame.mesh = frame_mesh
+	doors.add_child(mi_frame)
 
 	_set_all_owners(root, root)
 	var ps := PackedScene.new()
@@ -304,14 +355,8 @@ func _service_court_props(mb: GL.MeshBuilder) -> void:
 	# 等待组：长椅 ×2 + 站牌小柱
 	GL.bench(mb, -63.5, -1.5, PI / 2, KEYS)
 	GL.bench(mb, -63.5, 12.0, PI / 2, KEYS)
-	# 清洁组：洗衣晾架（南墙前）+ 水桶
-	for i in 2:
-		var px := -58.0 + i * 2.2
-		mb.box("metal_dark", Vector3(px - 0.03, 0.12, -14.6), Vector3(px + 0.03, 1.9, -14.54), 0.8, 14.0)
-	mb.box("wire", Vector3(-58.0, 1.82, -14.62), Vector3(-55.8, 1.85, -14.58), 0.9, 8.0)
-	mb.quad("cloth", Vector3(-57.7, 1.1, -14.6), Vector3(-57.3, 1.1, -14.6), Vector3(-57.3, 1.8, -14.6), Vector3(-57.7, 1.8, -14.6), Vector3(0, 0, -1), [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)], Vector2(0.4 * 20.0 / GL.ATLAS_PX, 0.7 * 20.0 / GL.ATLAS_PX))
-	for b in [Vector3(-56.2, 0.27, -13.6), Vector3(-55.6, 0.27, -13.9)]:
-		mb.cylinder("metal_teal", b, 0.16, 0.3, 8, 0.7, 14.0)
+	# （chapter1-2：原"南墙前晾架/水桶"位于 SC_S 建筑体内部（z≈-14.6）属穿模，
+	#   已移除并由 _street_enrich_props 的 G5 晾衣组在建筑外重做。）
 	# 维修组：工具箱 + 油桶 + 板条箱（修理点门前 x≈-63）
 	mb.box("metal_teal", Vector3(-63.9, 0.29, 6.2), Vector3(-62.7, 0.85, 7.1), 0.7, 20.0)
 	mb.box("metal_dark", Vector3(-63.85, 0.85, 6.25), Vector3(-62.75, 1.0, 7.05), 0.7, 18.0)
@@ -390,11 +435,305 @@ func _roof_terrace_props(mb: GL.MeshBuilder) -> void:
 		mb.bulb("bulb_warm", lp + Vector3(0, 1.0, 0), 0.09)
 	# 座椅区补光（烘焙灯）
 	lights_spec.append(_omni(Vector3(-51.0, 10.9, 8.0), Color(1, 0.74, 0.48), 2.6, 7.0))
-	# 晾衣绳一段（西南角，生活气息）
+	# 晾衣绳一段（西南角，生活气息；双面布片，绕序与法线一致）
 	mb.box("metal_dark", Vector3(-65.9, 9.12, 15.2), Vector3(-65.84, 11.0, 15.26), 0.8, 14.0)
 	mb.box("wire", Vector3(-65.87, 10.9, 15.2), Vector3(-62.6, 10.95, 15.2), 0.9, 8.0)
+	var terrace_uv := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
 	for cxx in [-65.2, -64.4, -63.6]:
-		mb.quad("cloth", Vector3(cxx, 10.2, 15.2), Vector3(cxx + 0.4, 10.2, 15.2), Vector3(cxx + 0.4, 10.85, 15.2), Vector3(cxx, 10.85, 15.2), Vector3(0, 0, -1), [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)], Vector2(0.4 * 20.0 / GL.ATLAS_PX, 0.65 * 20.0 / GL.ATLAS_PX))
+		mb.quad("cloth", Vector3(cxx + 0.4, 10.2, 15.2), Vector3(cxx, 10.2, 15.2), Vector3(cxx, 10.85, 15.2), Vector3(cxx + 0.4, 10.85, 15.2), Vector3(0, 0, -1), terrace_uv, Vector2(0.4 * 20.0 / GL.ATLAS_PX, 0.65 * 20.0 / GL.ATLAS_PX))
+		mb.quad("cloth", Vector3(cxx, 10.2, 15.2), Vector3(cxx + 0.4, 10.2, 15.2), Vector3(cxx + 0.4, 10.85, 15.2), Vector3(cxx, 10.85, 15.2), Vector3(0, 0, 1), terrace_uv, Vector2())
+
+
+# ============================ chapter1-2 §5.2：街面丰富（六组叙事道具） ============================
+# 坐标避让已核对：路灯（西 z -45/-9/27、东 z -36/0/36）、长椅（±8.8 与广场两处）、
+# 配送箱（-9.0,37..39）、电杆（东 9.8, z -46/-26/-6）、既有机位视线走廊与门户落点。
+
+func _street_enrich_props(mb: GL.MeshBuilder) -> void:
+	_enrich_g1_trees(mb)
+	_enrich_g2_parking(mb)
+	_enrich_g3_storefront(mb)
+	_enrich_g4_repair_plaza(mb)
+	_enrich_g5_laundry_life(mb)
+	_enrich_g6_street_details(mb)
+
+
+# G1 人行道绿荫：花钵行道树 ×4 + 树下座椅 ×3
+func _enrich_g1_trees(mb: GL.MeshBuilder) -> void:
+	var spots := [
+		{"x": -9.7, "z": 21.0, "seed": 3001, "stool": [-8.35, 22.3]},
+		{"x": -9.7, "z": 44.0, "seed": 3002, "stool": [-8.35, 42.7]},
+		{"x": 9.7, "z": -12.0, "seed": 3003, "stool": [8.35, -13.3]},
+		{"x": 9.7, "z": 22.0, "seed": 3004, "stool": []},
+	]
+	for sp in spots:
+		_tree_in_planter(mb, float(sp["x"]), 0.15, float(sp["z"]), int(sp["seed"]))
+		if not sp["stool"].is_empty():
+			var sx: float = sp["stool"][0]
+			var sz: float = sp["stool"][1]
+			mb.box("wood", Vector3(sx - 0.28, 0.15, sz - 0.28), Vector3(sx + 0.28, 0.58, sz + 0.28), 0.7, 18.0)
+			mb.box("wood", Vector3(sx - 0.31, 0.58, sz - 0.31), Vector3(sx + 0.31, 0.64, sz + 0.31), 0.7, 16.0)
+	# 树木禁入（东西各一条窄带，人行道靠路缘半幅；相机仍可从店侧通过）
+	exclusions.append(AABB(Vector3(-10.35, 0, 20.3), Vector3(1.3, 4.6, 24.4)))
+	exclusions.append(AABB(Vector3(9.05, 0, -12.65), Vector3(1.3, 4.6, 35.3)))
+
+
+# G2 停靠与代步：自行车棚（3 辆）+ 共享滑板车站牌 ×2
+func _enrich_g2_parking(mb: GL.MeshBuilder) -> void:
+	# 棚体（西侧人行道北段，4 钢柱 + 青色平顶 + 侧挡板）
+	for px in [-10.72, -8.88]:
+		for pz in [12.68, 16.82]:
+			mb.box("metal_dark", Vector3(px - 0.045, 0.15, pz - 0.045), Vector3(px + 0.045, 2.25, pz + 0.045), 0.8, 16.0)
+	mb.box("metal_teal", Vector3(-10.95, 2.25, 12.35), Vector3(-8.65, 2.38, 17.15), 0.7, 20.0, FACE_NB)
+	mb.box("wood", Vector3(-10.88, 0.35, 12.55), Vector3(-10.68, 1.45, 16.95), 0.7, 18.0)
+	# 顶檐灯带（低亮度条，不加油）
+	mb.box("lit_cool", Vector3(-10.6, 2.16, 12.6), Vector3(-10.52, 2.24, 16.9), 0.8, 14.0)
+	for i in 3:
+		_bike(mb, -9.75, 0.15, 13.35 + i * 1.3, "street")
+	exclusions.append(AABB(Vector3(-11.0, 0, 12.3), Vector3(2.4, 2.5, 4.9)))
+	# 共享滑板车站牌小柱 ×2（青色标识）
+	for sp in [Vector3(-8.4, 0.15, 29.8), Vector3(8.8, 0.15, 16.0)]:
+		mb.cylinder("metal_dark", sp, 0.05, 1.2, 8, 0.7, 14.0)
+		mb.box("metal_dark", sp + Vector3(-0.14, 0, -0.14), sp + Vector3(0.14, 0.06, 0.14), 0.8, 14.0)
+		mb.box("metal_teal", sp + Vector3(-0.19, 0.95, -0.025), sp + Vector3(0.19, 1.32, 0.025), 0.7, 16.0)
+		mb.box("lit_cool", sp + Vector3(-0.16, 1.02, 0.028), sp + Vector3(0.16, 1.25, 0.034), 0.8, 14.0)
+
+
+# G3 店外经营（海风便利门前）+ 夜宵摊车（侧巷口，收摊罩布）
+func _enrich_g3_storefront(mb: GL.MeshBuilder) -> void:
+	# 外摆冰柜（暖光灯箱观感：正门面两条 lit_warm 竖带）
+	mb.box("metal_dark", Vector3(-8.62, 0.15, 31.0), Vector3(-7.82, 0.30, 34.2), 0.7, 20.0)
+	mb.box("wall_warm", Vector3(-8.58, 0.30, 31.04), Vector3(-7.86, 1.12, 34.16), 0.6, 20.0)
+	mb.box("lit_warm", Vector3(-8.50, 0.42, 31.09), Vector3(-8.36, 1.02, 34.11), 0.8, 16.0)
+	mb.box("lit_warm", Vector3(-8.08, 0.42, 31.09), Vector3(-7.94, 1.02, 34.11), 0.8, 16.0)
+	mb.box("glass_shop", Vector3(-8.58, 1.12, 31.04), Vector3(-7.86, 1.24, 34.16), 0.6, 16.0)
+	# 报刊架（立背 + 层台 + 前缘挡条 + 三本立靠杂志）
+	mb.box("wood", Vector3(-8.95, 0.15, 26.35), Vector3(-8.15, 1.35, 26.55), 0.7, 20.0)
+	mb.box("wood", Vector3(-8.90, 0.62, 26.55), Vector3(-8.20, 0.72, 27.45), 0.7, 18.0)
+	mb.box("wood", Vector3(-8.90, 0.72, 27.36), Vector3(-8.20, 0.88, 27.48), 0.7, 16.0)
+	var mag_uv := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+	for i in 3:
+		var mx := -8.72 + i * 0.26
+		var my := 0.74 + (1 if i == 1 else 0) * 0.03
+		mb.quad("poster", Vector3(mx - 0.1, my, 26.6), Vector3(mx + 0.1, my, 26.6), Vector3(mx + 0.1, my + 0.5, 26.6), Vector3(mx - 0.1, my + 0.5, 26.6), Vector3(0, 0.24, 0.97).normalized(), mag_uv, Vector2(0.3 * 20.0 / GL.ATLAS_PX, 0.5 * 20.0 / GL.ATLAS_PX))
+	# A 字立牌（今日特惠；两片斜板 + 顶铰链 + 底撑）
+	_a_frame_board(mb, Vector3(-7.95, 0.15, 34.4), Vector3(-0.25, 0, 0.97), "sign_special")
+	# 夜宵摊车（收摊罩布，停巷口靠北墙）
+	_food_cart(mb, Vector3(-14.3, 0.1, 4.0))
+	# 忘关的摊灯（灯杆 + 暖光池落在巷口）——本轮新增烘焙灯 1/2
+	mb.cylinder("metal_dark", Vector3(-15.55, 0.1, 4.0), 0.045, 1.85, 8, 0.7, 14.0)
+	mb.box("metal_dark", Vector3(-15.62, 1.85, 3.8), Vector3(-15.48, 1.98, 4.2), 0.7, 14.0)
+	mb.bulb("bulb_warm", Vector3(-15.55, 1.78, 4.0), 0.09)
+	lights_spec.append(_omni(Vector3(-15.4, 1.6, 4.0), Color(1, 0.72, 0.45), 1.4, 5.5))
+	exclusions.append(AABB(Vector3(-15.9, 0, 3.1), Vector3(2.5, 2.0, 2.1)))
+
+
+# G4 修理铺广场：A 板（营业中）+ 待修自行车斜靠架 + 油桶托盘 + 手推车
+func _enrich_g4_repair_plaza(mb: GL.MeshBuilder) -> void:
+	# A 板面朝广场西南（门户锚点与 repair_shop_view 视线均可读到）
+	_a_frame_board(mb, Vector3(31.5, 0.17, 31.2), Vector3(-0.78, 0, -0.63), "sign_open_board")
+	# 斜靠架（三柱一杆）+ 待修自行车 ×2（贴柱斜靠）
+	for px in [27.0, 27.6, 28.2]:
+		mb.box("metal_teal", Vector3(px - 0.045, 0.17, 23.4), Vector3(px + 0.045, 0.78, 23.5), 0.8, 16.0)
+	mb.box("metal_teal", Vector3(26.9, 0.72, 23.32), Vector3(28.3, 0.84, 23.44), 0.7, 16.0)
+	_bike(mb, 27.3, 0.17, 24.1, "lean")
+	_bike(mb, 27.9, 0.17, 25.5, "lean")
+	# 油桶 ×2 + 木托盘 + 零件箱（贴维修铺墙根，与门户落点保持 2m 以上）
+	mb.box("wood", Vector3(29.95, 0.17, 35.7), Vector3(31.25, 0.29, 36.6), 0.7, 18.0)
+	mb.cylinder("metal_orange", Vector3(30.25, 0.29, 36.15), 0.24, 0.85, 10, 0.55, 16.0)
+	mb.cylinder("metal_orange", Vector3(30.95, 0.29, 37.25), 0.24, 0.85, 10, 0.55, 16.0)
+	mb.box("wood", Vector3(30.7, 0.29, 35.85), Vector3(31.2, 0.72, 36.35), 0.7, 18.0)
+	# 工具手推车（车斗 + 斜把手 + 双轮）
+	mb.box("metal_teal", Vector3(26.6, 0.55, 22.2), Vector3(27.35, 0.98, 22.9), 0.7, 18.0)
+	mb.box("metal_dark", Vector3(26.62, 0.42, 22.22), Vector3(27.33, 0.56, 22.88), 0.7, 16.0)
+	mb.box("metal_dark", Vector3(27.35, 0.9, 22.35), Vector3(27.95, 1.18, 22.5), 0.7, 14.0)
+	mb.cylinder("rubber", Vector3(26.85, 0.17, 22.95), 0.16, 0.08, 8, 0.8, 12.0)
+	mb.cylinder("rubber", Vector3(27.1, 0.17, 22.2), 0.16, 0.08, 8, 0.8, 12.0)
+	exclusions.append(AABB(Vector3(26.4, 0, 22.0), Vector3(2.6, 1.9, 4.0)))
+	exclusions.append(AABB(Vector3(29.8, 0, 35.5), Vector3(2.0, 1.2, 2.4)))
+
+
+# G5 生活广场：晾衣绳两组 + 水池拖把 + 杂物木架 + 猫窝（南翼建筑外，替换原穿模晾架）
+func _enrich_g5_laundry_life(mb: GL.MeshBuilder) -> void:
+	# 晾衣绳组 1（5 件）与组 2（4 件）：立柱 + 拉线 + 交替色衣物
+	_clothesline(mb, -62.0, -58.0, -9.6, ["cloth", "cloth_blue", "cloth_rose", "cloth", "cloth_blue"])
+	_clothesline(mb, -55.5, -51.5, -9.6, ["cloth_rose", "cloth", "cloth_blue", "cloth"])
+	# 水池 + 拖把（洗衣店东墙脚）
+	mb.box("concrete_plain", Vector3(-63.35, 0.12, -10.15), Vector3(-62.45, 0.67, -9.45), 0.55, 20.0)
+	mb.box("metal_dark", Vector3(-63.25, 0.67, -10.05), Vector3(-62.55, 0.85, -9.55), 0.6, 18.0)
+	mb.cylinder("wood", Vector3(-62.3, 0.12, -9.7), 0.035, 1.35, 6, 0.7, 12.0)
+	mb.bulb("cloth", Vector3(-62.3, 1.44, -9.7), 0.11)
+	# 杂物木架（三层，纸箱错落）
+	mb.box("wood", Vector3(-50.6, 0.12, -10.2), Vector3(-50.45, 1.75, -9.6), 0.7, 16.0)
+	mb.box("wood", Vector3(-49.4, 0.12, -10.2), Vector3(-49.25, 1.75, -9.6), 0.7, 16.0)
+	for i in 3:
+		var sy := 0.5 + i * 0.5
+		mb.box("wood", Vector3(-50.6, sy, -10.15), Vector3(-49.25, sy + 0.05, -9.65), 0.7, 16.0)
+	mb.box("wall_warm", Vector3(-50.4, 0.55, -10.05), Vector3(-49.95, 0.98, -9.72), 0.6, 18.0)
+	mb.box("wood", Vector3(-49.85, 1.05, -10.0), Vector3(-49.5, 1.4, -9.75), 0.7, 18.0)
+	# 猫窝（南翼墙根，开口朝北）
+	mb.box("wood", Vector3(-54.98, 0.12, -10.85), Vector3(-54.42, 0.55, -10.35), 0.7, 18.0)
+	mb.box("wood", Vector3(-54.98, 0.55, -10.9), Vector3(-54.42, 0.62, -10.3), 0.7, 16.0)
+	mb.box("cloth", Vector3(-54.88, 0.56, -10.72), Vector3(-54.52, 0.60, -10.48), 0.8, 10.0)
+	# 晾衣区壁灯（南翼北墙）——本轮新增烘焙灯 2/2
+	mb.box("metal_dark", Vector3(-56.15, 2.05, -10.95), Vector3(-55.85, 2.32, -10.78), 0.8, 14.0)
+	mb.bulb("bulb_warm", Vector3(-56.0, 1.98, -10.86), 0.07)
+	lights_spec.append(_omni(Vector3(-56.0, 1.8, -10.4), Color(1, 0.74, 0.5), 1.2, 5.0))
+	exclusions.append(AABB(Vector3(-63.5, 0, -10.95), Vector3(14.6, 2.3, 2.95)))
+
+
+# G6 街面细节：井盖 ×4 + 消防栓（西侧）+ 锥桶 ×3 + 排水篦 ×2
+func _enrich_g6_street_details(mb: GL.MeshBuilder) -> void:
+	for p in [Vector3(20.0, 0.19, 24.0), Vector3(-8.0, 0.17, -14.0), Vector3(8.2, 0.17, 44.0), Vector3(-54.0, 0.14, -2.0)]:
+		mb.cylinder("metal_dark", p, 0.42, 0.025, 10, 0.8, 18.0)
+	# 消防栓（与东侧 7.2,2.0 对称）
+	mb.cylinder("metal_orange", Vector3(-7.2, 0.15, 38.0), 0.11, 0.62, 8, 0.7, 20.0)
+	mb.cylinder("metal_orange", Vector3(-7.2, 0.74, 38.0), 0.09, 0.12, 8, 0.7, 16.0)
+	# 锥桶 ×3（主街修补区边缘）
+	for p in [Vector3(-3.3, 0.03, 5.0), Vector3(0.5, 0.03, 5.6), Vector3(-3.3, 0.03, 11.0)]:
+		mb.box("metal_orange", p + Vector3(-0.2, 0, -0.2), p + Vector3(0.2, 0.045, 0.2), 0.7, 14.0)
+		mb.cylinder("metal_orange", p + Vector3(0, 0.045, 0), 0.16, 0.2, 8, 0.6, 14.0)
+		mb.cylinder("metal_orange", p + Vector3(0, 0.245, 0), 0.115, 0.2, 8, 0.6, 14.0)
+		mb.cylinder("metal_orange", p + Vector3(0, 0.445, 0), 0.07, 0.16, 8, 0.6, 14.0)
+		mb.cylinder("wall_warm", p + Vector3(0, 0.235, 0), 0.117, 0.05, 8, 0.7, 12.0)
+	# 排水篦 ×2（广场西缘路沿）
+	for z in [21.0, 33.5]:
+		mb.box("metal_dark", Vector3(12.55, 0.18, z - 0.5), Vector3(12.95, 0.24, z + 0.5), 0.8, 18.0)
+
+
+# ---- street_enrich 复用小件 ----
+
+func _tree_in_planter(mb: GL.MeshBuilder, x: float, ground_y: float, z: float, seed: int) -> void:
+	## 花钵行道树：双层收分木箱 + 矮干 + 三簇错位叶冠（延续 _plant 的八面体语汇，尺度放大）。
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	mb.box("wood", Vector3(x - 0.55, ground_y, z - 0.55), Vector3(x + 0.55, ground_y + 0.4, z + 0.55), 0.7, 20.0)
+	mb.box("wood", Vector3(x - 0.46, ground_y + 0.4, z - 0.46), Vector3(x + 0.46, ground_y + 0.56, z + 0.46), 0.7, 18.0)
+	mb.box("rubber", Vector3(x - 0.4, ground_y + 0.52, z - 0.4), Vector3(x + 0.4, ground_y + 0.57, z + 0.4), 0.8, 12.0)
+	mb.cylinder("wood", Vector3(x, ground_y + 0.54, z), 0.13, 2.55, 7, 0.7, 16.0)
+	# 支撑枝两根（低模树冠的"骨架感"）
+	mb.box("wood", Vector3(x - 0.02, ground_y + 1.7, z - 0.02), Vector3(x + 0.5, ground_y + 1.82, z + 0.04), 0.7, 14.0)
+	mb.box("wood", Vector3(x - 0.5, ground_y + 2.1, z - 0.04), Vector3(x + 0.02, ground_y + 2.22, z + 0.02), 0.7, 14.0)
+	# 叶冠（中心大簇 + 两错位小簇）
+	mb.bulb("plant_green", Vector3(x, ground_y + 3.35, z), 1.02)
+	mb.bulb("plant_green", Vector3(x + 0.42, ground_y + 2.78, z - 0.22), 0.66)
+	mb.bulb("plant_green", Vector3(x - 0.34, ground_y + 2.9, z + 0.3), 0.58)
+	mb.bulb("plant_green", Vector3(x + 0.1, ground_y + 3.95, z - 0.06), 0.5)
+
+
+func _bike(mb: GL.MeshBuilder, x: float, ground_y: float, z: float, mode: String) -> void:
+	## 轴对齐低模自行车（薄盒轮 + 五段车架 + 前筐）。mode: street=棚下直立 / lean=斜靠架旁贴靠。
+	var lean_x := 0.14 if mode == "lean" else 0.0
+	var lean_z := -0.1 if mode == "lean" else 0.0
+	var wheel := "rubber"
+	var frame := "metal_dark"
+	# 前后轮（面法线朝 X 的薄盒）
+	mb.box(wheel, Vector3(x - 0.025, ground_y + 0.3, z + lean_z - 0.52), Vector3(x + 0.025, ground_y + 0.9, z + lean_z - 0.44), 0.8, 14.0)
+	mb.box(wheel, Vector3(x - 0.025, ground_y + 0.3, z + lean_z + 0.44), Vector3(x + 0.025, ground_y + 0.9, z + lean_z + 0.52), 0.8, 14.0)
+	# 车架：踏板中轴 + 座管 + 下管 + 前立管
+	mb.box(frame, Vector3(x - 0.03, ground_y + 0.42, z + lean_z - 0.1), Vector3(x + 0.03, ground_y + 0.5, z + lean_z + 0.12), 0.8, 14.0)
+	mb.box(frame, Vector3(x - 0.025, ground_y + 0.48, z + lean_z - 0.22), Vector3(x + 0.025, ground_y + 0.95, z + lean_z - 0.14), 0.8, 14.0)
+	mb.box(frame, Vector3(x - 0.025, ground_y + 0.48, z + lean_z + 0.12), Vector3(x + 0.025, ground_y + 0.62, z + lean_z + 0.4), 0.8, 14.0)
+	mb.box(frame, Vector3(x - 0.025, ground_y + 0.6, z + lean_z + 0.36), Vector3(x + 0.025, ground_y + 0.98, z + lean_z + 0.44), 0.8, 14.0)
+	# 座垫 + 把横
+	mb.box("rubber", Vector3(x - 0.09, ground_y + 0.95, z + lean_z - 0.3), Vector3(x + 0.09, ground_y + 1.01, z + lean_z - 0.12), 0.8, 14.0)
+	mb.box(frame, Vector3(x - 0.2, ground_y + 1.0, z + lean_x + lean_z + 0.38), Vector3(x + 0.2, ground_y + 1.06, z + lean_x + lean_z + 0.46), 0.8, 14.0)
+	# 前筐（共享单车语汇）
+	if mode == "street":
+		mb.box("metal_teal", Vector3(x - 0.02, ground_y + 0.66, z + lean_z + 0.52), Vector3(x + 0.02, ground_y + 0.95, z + lean_z + 0.54), 0.8, 12.0)
+		mb.box("metal_teal", Vector3(x - 0.18, ground_y + 0.66, z + lean_z + 0.5), Vector3(x - 0.16, ground_y + 0.95, z + lean_z + 0.56), 0.8, 12.0)
+		mb.box("metal_teal", Vector3(x + 0.16, ground_y + 0.66, z + lean_z + 0.5), Vector3(x + 0.18, ground_y + 0.95, z + lean_z + 0.56), 0.8, 12.0)
+		mb.box("metal_teal", Vector3(x - 0.18, ground_y + 0.93, z + lean_z + 0.5), Vector3(x + 0.18, ground_y + 0.95, z + lean_z + 0.56), 0.8, 12.0)
+
+
+func _a_frame_board(mb: GL.MeshBuilder, base: Vector3, face_dir: Vector3, sign_key: String) -> void:
+	## A 字立牌：前后两片斜板（字面 + 背板）+ 顶铰链 + 底部横撑。face_dir 为字面朝向（水平）。
+	var f := Vector3(face_dir.x, 0, face_dir.z).normalized()
+	var side := Vector3(-f.z, 0, f.x)
+	var h := 1.15
+	var w := 0.36
+	var tilt := 0.16  # 顶部向背侧收进的进深
+	var top := base + Vector3(0, h, 0) - f * tilt
+	var bot := base + Vector3(0, 0.02, 0)
+	var uv_full := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+	var size := Vector2(0.72 * 20.0 / GL.ATLAS_PX, h * 20.0 / GL.ATLAS_PX)
+	# 前板（字面）：顶点序按"从法线侧看逆时针"（e1×e2 指向法线）；底部 v=1 对应图像底部
+	mb.quad(sign_key, bot + side * w - f * 0.02, bot - side * w - f * 0.02, top - side * w, top + side * w, f, uv_full, size)
+	# 背板（法线 -f，观察者一侧的左右翻转）
+	mb.quad("wood", bot - side * w + f * 0.02, bot + side * w + f * 0.02, top + side * w, top - side * w, -f, uv_full, Vector2())
+	# 顶铰链与底撑
+	mb.box("metal_dark", top + side * -w - f * 0.05, top + side * w + f * 0.05 + Vector3(0, 0.05, 0), 0.7, 14.0)
+	mb.box("wood", bot + side * -w + f * 0.16 + Vector3(0, 0.08, 0), bot + side * w + f * 0.16 + Vector3(0, 0.13, 0), 0.7, 14.0)
+
+
+func _food_cart(mb: GL.MeshBuilder, base: Vector3) -> void:
+	## 夜宵摊车（收摊罩布）：底盘 + 角柱 + 两坡罩布 + 侧垂帘 + 车轮。
+	var x := base.x
+	var y := base.y
+	var z := base.z
+	# 底盘与台面
+	mb.box("metal_dark", Vector3(x - 0.95, y + 0.32, z - 0.48), Vector3(x + 0.95, y + 0.58, z + 0.48), 0.7, 20.0)
+	mb.box("wood", Vector3(x - 0.98, y + 0.58, z - 0.5), Vector3(x + 0.98, y + 0.66, z + 0.5), 0.7, 18.0)
+	# 角柱（撑起罩布）
+	for cx in [x - 0.88, x + 0.88]:
+		for cz in [z - 0.42, z + 0.42]:
+			mb.box("metal_dark", Vector3(cx - 0.035, y + 0.66, cz - 0.035), Vector3(cx + 0.035, y + 1.78, cz + 0.035), 0.8, 14.0)
+	# 罩布：屋脊两坡 + 前后垂边（顶点序 e1×e2 指向坡面外法线）
+	var ridge_y := y + 2.02
+	var eave_y := y + 1.8
+	var uv_full := [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
+	var cloth_size := Vector2(2.0 * 20.0 / GL.ATLAS_PX, 0.9 * 20.0 / GL.ATLAS_PX)
+	# 北坡（法线朝 -z 偏上）与南坡：两坡朝向相反，顶点序的 x 方向随 s 翻转
+	# （验证：e1×e2 = (0, +0.72, +0.42·s 的镜像) 与坡面外法线同向）
+	for s_val in [-1.0, 1.0]:
+		var s: float = s_val
+		var n := Vector3(0, 0.55, s * 0.83).normalized()
+		var xa: float = x - 0.95 * s
+		var xb: float = x + 0.95 * s
+		mb.quad("cloth",
+			Vector3(xa, eave_y, z + s * 0.46),
+			Vector3(xb, eave_y, z + s * 0.46),
+			Vector3(xb, ridge_y, z + s * 0.08),
+			Vector3(xa, ridge_y, z + s * 0.08), n, uv_full, cloth_size)
+	# 东西两侧三角垂片（退化 quad：底边两点 + 脊点重复；东侧法线 +x 顶点序反向）
+	for ex in [x - 0.95, x + 0.95]:
+		var n2 := Vector3(signf(ex - x), 0, 0)
+		var tri_size := Vector2(0.9 * 16.0 / GL.ATLAS_PX, 0.35 * 16.0 / GL.ATLAS_PX)
+		if ex < x:
+			mb.quad("cloth",
+				Vector3(ex, eave_y, z - 0.46),
+				Vector3(ex, eave_y, z + 0.46),
+				Vector3(ex, ridge_y, z + 0.08),
+				Vector3(ex, ridge_y, z + 0.08), n2, uv_full, tri_size)
+		else:
+			mb.quad("cloth",
+				Vector3(ex, eave_y, z + 0.46),
+				Vector3(ex, eave_y, z - 0.46),
+				Vector3(ex, ridge_y, z + 0.08),
+				Vector3(ex, ridge_y, z + 0.08), n2, uv_full, tri_size)
+	# 车轮（巷地面 y=0.1，双侧双轮）
+	for wx in [x - 0.75, x + 0.75]:
+		for wz in [z - 0.44, z + 0.44]:
+			mb.cylinder("rubber", Vector3(wx, 0.1, wz), 0.17, 0.09, 10, 0.8, 14.0)
+	# 推车把手（东端）
+	mb.box("metal_dark", Vector3(x + 0.98, y + 0.78, z - 0.06), Vector3(x + 1.35, y + 0.9, z + 0.06), 0.7, 14.0)
+
+
+func _clothesline(mb: GL.MeshBuilder, x0: float, x1: float, z: float, cloth_keys: Array) -> void:
+	## 晾衣绳：双柱 + 拉线 + 交替色衣物（暖色生活痕迹）。
+	for px in [x0, x1]:
+		mb.box("wood", Vector3(px - 0.05, 0.12, z - 0.05), Vector3(px + 0.05, 2.14, z + 0.05), 0.7, 16.0)
+	mb.box("wire", Vector3(x0, 2.05, z - 0.012), Vector3(x1, 2.08, z + 0.012), 0.9, 8.0)
+	var uv_full := [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)]
+	for i in cloth_keys.size():
+		var cx: float = lerpf(x0 + 0.35, x1 - 0.35, float(i) / maxf(1.0, float(cloth_keys.size() - 1)))
+		var w := 0.34 + 0.1 * float(i % 3)
+		var top_y := 2.02 - 0.06 * float(i % 2)
+		var bot_y := top_y - (0.62 + 0.1 * float((i + 1) % 3))
+		var key := str(cloth_keys[i])
+		var size := Vector2(w * 20.0 / GL.ATLAS_PX, (top_y - bot_y) * 20.0 / GL.ATLAS_PX)
+		# 北面（法线 -z：x 递减序）与南面（法线 +z：x 递增序），布片双面各一片
+		mb.quad(key, Vector3(cx + w / 2, bot_y, z), Vector3(cx - w / 2, bot_y, z), Vector3(cx - w / 2, top_y, z), Vector3(cx + w / 2, top_y, z), Vector3(0, 0, -1), uv_full, size)
+		mb.quad(key, Vector3(cx - w / 2, bot_y, z), Vector3(cx + w / 2, bot_y, z), Vector3(cx + w / 2, top_y, z), Vector3(cx - w / 2, top_y, z), Vector3(0, 0, 1), uv_full, Vector2())
 
 
 func _plant(mb: GL.MeshBuilder, top: Vector3, radius: float) -> void:
@@ -540,6 +879,7 @@ func _save_spec() -> void:
 		"exclusions": excl,
 		"flickers": flickers,
 		"particles": particles,
+		"portals": portals,
 		"region_manifest_path": region_manifest_path,
 		"total_exclusions": excl.size(),
 	}
@@ -622,6 +962,26 @@ func _load_materials() -> void:
 	plant.albedo_color = Color(0.33, 0.46, 0.30)
 	plant.roughness = 0.95
 	mats["plant_green"] = plant
+	# chapter1-2 §5.2：街面丰富专属——A 牌字图（非发光）与彩色衣物
+	for k in ["special", "open_board"]:
+		var board_path := "%s/signs/%s.png" % [TEX, k]
+		var bm := StandardMaterial3D.new()
+		if ResourceLoader.exists(board_path):
+			bm.albedo_texture = load(board_path)
+			bm.roughness = 0.9
+		else:
+			push_warning("authored: A 牌字图缺失 %s（重跑 gen_signs），回退纯色" % board_path)
+			bm.albedo_color = Color(0.8, 0.78, 0.74)
+			bm.roughness = 0.9
+		mats["sign_%s" % k] = bm
+	var cloth_blue := StandardMaterial3D.new()
+	cloth_blue.albedo_color = Color(0.42, 0.50, 0.62)
+	cloth_blue.roughness = 0.95
+	mats["cloth_blue"] = cloth_blue
+	var cloth_rose := StandardMaterial3D.new()
+	cloth_rose.albedo_color = Color(0.70, 0.52, 0.55)
+	cloth_rose.roughness = 0.95
+	mats["cloth_rose"] = cloth_rose
 	var laundry_path := "%s/signs/laundry.png" % TEX
 	if ResourceLoader.exists(laundry_path):
 		var sm := StandardMaterial3D.new()
