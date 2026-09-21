@@ -242,14 +242,27 @@ func _check_authored_baseline(baseline_path: String, current_hash: String) -> vo
 
 
 func _hash_files(paths: Array) -> String:
+	## 与两份 assemble 的 _hash_files 保持同一规范化（unique_id 剥离），否则三方比对必然失配。
 	var acc := ""
 	for p in paths:
 		var rel: String = str(p).trim_prefix("res://")
 		if not FileAccess.file_exists(str(p)):
 			acc += rel + ":missing;"
 			continue
-		acc += rel + ":" + FileAccess.get_sha256(str(p)) + ";"
+		acc += rel + ":" + _stable_sha(str(p)) + ";"
 	return acc.sha256_text()
+
+
+func _stable_sha(path: String) -> String:
+	## .tscn/.tres 剥离 Godot 4.7 保存时随机生成的节点 unique_id=NNN 再哈希；
+	## 其余文件按原始字节。否则几何未变指纹也会漂移，清单永远 stale（1.2 修复）。
+	if path.ends_with(".tscn") or path.ends_with(".tres"):
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f != null:
+			var txt := f.get_as_text()
+			f.close()
+			return RegEx.create_from_string("unique_id=\\d+").sub(txt, "", true).sha256_text()
+	return FileAccess.get_sha256(path)
 
 
 func _load_json(path: String) -> Dictionary:

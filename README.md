@@ -62,6 +62,7 @@
 - GPU 性能数据见 `artifacts/chapter1_2/perf_street.log` 与 `user://benchmarks/`；工作集等系统级指标标注 N/A（引擎内无法可靠采样，需外部工具）。
 - 无人值守会话运行 `--perf` 时窗口拿不到前台焦点会触发失焦中止（测量有效性设计）；本机用 `tools/focus_keep.ps1` 保持前台后采样有效。
 - chapter1-2 遗留：实机 F 键门户往返步行体感与摄影模式巡走清单为人工项（数据/合同层已自动验证，见 `docs/chapter1_2/review.md`）。
+- `build/windows/neon_haven.exe` 为 chapter1-1 内容的导出产物；包含 chapter1-2 双地图的重导出与独立目录实测列入 `docs/backlog.md`（G6）。
 
 ## 目录速览
 

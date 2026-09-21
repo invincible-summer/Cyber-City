@@ -121,8 +121,10 @@ func _run() -> void:
 	root.add_child(lighting)
 
 	# 门户门扇（chapter1-2 §3.10）：卷帘门上的行人小门，铰链 z 32.85，向街面(-X)开
+	# Flash 验收 1.2 修复：门扇原为 door_dark，与深棕卷帘门无法区分——改为金属青面板
+	# （城市青色标识语汇），配深色上下轨 + 暖色小窗 + 青把手，近景可读。
 	var mb_door := GL.MeshBuilder.new()
-	mb_door.box("door_dark", Vector3(-0.035, 0.0, 0.0), Vector3(0.035, 2.1, 0.95), 0.55, 26.0)
+	mb_door.box("metal_teal", Vector3(-0.035, 0.0, 0.0), Vector3(0.035, 2.1, 0.95), 0.55, 26.0)
 	mb_door.box("metal_dark", Vector3(-0.04, 0.0, -0.02), Vector3(0.04, 0.14, 0.97), 0.7, 22.0)
 	mb_door.box("metal_dark", Vector3(-0.04, 1.96, -0.02), Vector3(0.04, 2.14, 0.97), 0.7, 22.0)
 	var guv := Vector2(0.34 * 20.0 / GL.ATLAS_PX, 0.42 * 20.0 / GL.ATLAS_PX)
@@ -146,11 +148,15 @@ func _run() -> void:
 	pivot.add_child(mi_door)
 	doors.add_child(pivot)
 	root.add_child(doors)
-	# 小门框（贴卷帘门面，静态）
+	# 小门框（贴卷帘门面，静态）+ 门头小雨棚灯带（chapter1-2 §1.3 可选项，Flash 验收
+	# 1.2 激活：暖光条照亮门头与雨棚下阴影区，消除门口近景死黑）
 	var mb_frame := GL.MeshBuilder.new()
 	mb_frame.box("metal_dark", Vector3(32.8, 0.0, 32.78), Vector3(33.1, 2.2, 32.86), 0.7, 20.0)
 	mb_frame.box("metal_dark", Vector3(32.8, 0.0, 33.82), Vector3(33.1, 2.2, 33.9), 0.7, 20.0)
 	mb_frame.box("metal_dark", Vector3(32.8, 2.1, 32.78), Vector3(33.1, 2.2, 33.9), 0.7, 20.0)
+	mb_frame.box("metal_dark", Vector3(32.78, 2.2, 32.7), Vector3(33.1, 2.34, 33.98), 0.7, 20.0)
+	mb_frame.box("lit_warm", Vector3(32.76, 2.22, 32.8), Vector3(32.8, 2.32, 33.88), 0.8, 16.0)
+	lights_spec.append(_omni(Vector3(32.4, 2.5, 33.35), Color(1, 0.76, 0.5), 1.3, 5.5))
 	var frame_mesh := mb_frame.commit(mats, "%s/authored_door_frame.res" % AUTHORED_MESH_DIR, Vector2i(256, 256))
 	var mi_frame := MeshInstance3D.new()
 	mi_frame.name = "DoorFrame"
@@ -975,11 +981,11 @@ func _load_materials() -> void:
 			bm.roughness = 0.9
 		mats["sign_%s" % k] = bm
 	var cloth_blue := StandardMaterial3D.new()
-	cloth_blue.albedo_color = Color(0.42, 0.50, 0.62)
+	cloth_blue.albedo_color = Color(0.40, 0.58, 0.80)
 	cloth_blue.roughness = 0.95
 	mats["cloth_blue"] = cloth_blue
 	var cloth_rose := StandardMaterial3D.new()
-	cloth_rose.albedo_color = Color(0.70, 0.52, 0.55)
+	cloth_rose.albedo_color = Color(0.82, 0.46, 0.54)
 	cloth_rose.roughness = 0.95
 	mats["cloth_rose"] = cloth_rose
 	var laundry_path := "%s/signs/laundry.png" % TEX

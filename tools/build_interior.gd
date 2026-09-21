@@ -281,10 +281,11 @@ func _stairs(mb: GL.MeshBuilder) -> void:
 		zz += 1.1
 	mb.box("wood", Vector3(SLAB_X - 0.05, FLOOR_2 + 0.92, STAIR_Z1), Vector3(SLAB_X + 0.05, FLOOR_2 + 1.04, 5.88), 0.7, 18.0)
 	mb.box("metal_teal", Vector3(SLAB_X - 0.04, FLOOR_2 + 0.45, STAIR_Z1), Vector3(SLAB_X + 0.04, FLOOR_2 + 0.55, 5.88), 0.7, 16.0)
-	# 栏杆小灯串（二层，breathing 微光由 flicker 提供）
-	for k in 6:
-		var lz := 0.2 + k * 0.9
-		mb.bulb("bulb_warm", Vector3(SLAB_X, FLOOR_2 + 1.1, lz), 0.05)
+	# 栏杆小灯串（二层，breathing 微光由 flicker 提供；v5 终验后扩到北段并微增球径
+	# ——gallery 机位 0.7m 时灯串点应可读地排在扶手细线上方）
+	for k in 9:
+		var lz := -3.4 + k * 1.0
+		mb.bulb("bulb_warm", Vector3(SLAB_X, FLOOR_2 + 1.1, lz), 0.055)
 
 
 # ============================ 一层陈设（工坊） ============================
@@ -372,11 +373,15 @@ func _furnish_ground(mb: GL.MeshBuilder) -> void:
 	# 油桶 ×2（东北角）
 	for k in 2:
 		mb.cylinder("metal_orange", Vector3(9.1 + k * 0.55, 0.0, 5.15), 0.24, 0.85, 10, 0.55, 18.0)
-	# 中庭下地毯 + 两把等候椅 + 盆栽
+	# 中庭下地毯 + 两把等候椅 + 盆栽 + 毯边待修件木箱（打断 gallery_view 画框底部
+	# 掠射角下的平坦地面带，v8 终验 B 项：11.9% 高度实心暗棕带读作"板"）
 	_flat(mb, "rug", Vector3(1.5, 0.004, 0.0), 1.9, 2.6)
 	for cp in [Vector3(1.0, 0.0, 0.7), Vector3(2.0, 0.0, -0.8)]:
 		mb.box("wood", cp + Vector3(-0.22, 0.0, -0.22), cp + Vector3(0.22, 0.06, 0.22), 0.7, 18.0)
 		mb.box("wood", cp + Vector3(-0.22, 0.06, 0.14), cp + Vector3(0.22, 0.5, 0.22), 0.7, 18.0)
+	for k in 2:
+		mb.box("wood", Vector3(1.15, 0.0 + k * 0.34, -2.12), Vector3(1.62, 0.34 + k * 0.34, -1.66), 0.7, 20.0)
+	mb.box("metal_orange", Vector3(1.7, 0.0, -1.78), Vector3(2.05, 0.26, -1.44), 0.7, 20.0)
 	_plant(mb, Vector3(0.6, 0.0, 5.4), 0.45)
 	_plant(mb, Vector3(9.5, 0.0, -4.9), 0.4)
 	# 储物间：货架 + 热水器 + 电池组（青色指示）+ 纸箱
@@ -390,11 +395,28 @@ func _furnish_ground(mb: GL.MeshBuilder) -> void:
 		mb.bulb("lit_cool", Vector3(11.44, 0.4 + k * 0.35, 0.2), 0.035)
 	mb.box("wood", Vector3(12.6, 0.0, -1.4), Vector3(13.5, 0.6, -0.5), 0.7, 20.0)
 	# 主照明（bake_only 暖光 ×2）+ 中庭黄昏冷渗 ×2 + 楼梯灯串主光
-	lights_spec.append(_omni(Vector3(3.6, 2.6, 0.2), Color(1, 0.82, 0.6), 2.0, 7.0))
+	# 1.2 终验修复：主光①西移到等待区正上方并提能（地毯/等候椅原烘焙后近黑不可读）
+	lights_spec.append(_omni(Vector3(2.9, 2.6, 0.1), Color(1, 0.82, 0.6), 2.9, 8.0))
 	lights_spec.append(_omni(Vector3(7.0, 2.6, -1.2), Color(1, 0.8, 0.58), 2.0, 7.0))
-	lights_spec.append(_omni(Vector3(0.85, 2.3, -1.5), Color(0.55, 0.68, 0.92), 0.6, 5.0))
-	lights_spec.append(_omni(Vector3(0.85, 5.0, -1.5), Color(0.55, 0.68, 0.92), 0.55, 5.0))
+	lights_spec.append(_omni(Vector3(0.85, 2.3, -1.5), Color(0.55, 0.68, 0.92), 1.3, 6.0))
+	lights_spec.append(_omni(Vector3(0.85, 5.0, -1.5), Color(0.55, 0.68, 0.92), 0.9, 6.0))
 	lights_spec.append(_omni(Vector3(6.1, 2.7, -5.3), Color(1, 0.78, 0.5), 1.0, 4.0))
+	# 门头檐板 + 字图店招 + 两侧挂画（v5 终验复盘：无字纯色光条被判“不可读店招”；
+	# 换街面同款 repair_main 字图（4:1，2.0×0.5m 保持比例）——内外同一店铺身份）
+	# v7 根因修复：前墙墙体 x -0.12..0.12，内表面在 x=0.12；v6 的檐板(-0.02..0.1)、
+	# 店招(0.11)、挂画背板(0.02..0.12) 全部埋在墙体内 → 深度失败从不渲染，
+	# 画面只剩墙面的暖米色（“店招无字”真因）。整组移到内面前方。
+	mb.box("wood", Vector3(0.12, 3.0, -5.1), Vector3(0.24, 3.18, 1.1), 0.7, 24.0)
+	var sign_uv := Vector2(2.0 * 26.0 / GL.ATLAS_PX, 0.5 * 26.0 / GL.ATLAS_PX)
+	mb.quad("sign_repair", Vector3(0.25, 3.20, 0.6), Vector3(0.25, 3.20, -1.4),
+		Vector3(0.25, 3.70, -1.4), Vector3(0.25, 3.70, 0.6), Vector3(1, 0, 0),
+		[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], sign_uv)
+	var poster_uv := Vector2(0.5 * 26.0 / GL.ATLAS_PX, 0.44 * 26.0 / GL.ATLAS_PX)
+	for pz in [-3.9, 0.75]:
+		mb.box("wood", Vector3(0.12, 3.06, pz - 0.3), Vector3(0.22, 3.54, pz + 0.3), 0.7, 22.0)
+		mb.quad("poster", Vector3(0.23, 3.08, pz + 0.25), Vector3(0.23, 3.08, pz - 0.25),
+			Vector3(0.23, 3.52, pz - 0.25), Vector3(0.23, 3.52, pz + 0.25), Vector3(1, 0, 0),
+			[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], poster_uv)
 
 
 # ============================ 二层陈设（居家阁楼） ============================
@@ -461,9 +483,9 @@ func _furnish_upper(mb: GL.MeshBuilder) -> void:
 	_plant(mb, Vector3(3.75, fy, 5.35), 0.42)
 	mb.box("wood", Vector3(7.0, fy, 5.3), Vector3(7.8, fy + 0.55, 5.85), 0.7, 18.0)
 	# 二层灯光：厨房主灯 + 餐区窗光冷补 + 过道微光
-	lights_spec.append(_omni(Vector3(5.6, fy + 2.5, -4.3), Color(1, 0.82, 0.6), 1.4, 5.0))
-	lights_spec.append(_omni(Vector3(0.9, fy + 1.6, -2.0), Color(0.55, 0.68, 0.92), 0.5, 4.0))
-	lights_spec.append(_omni(Vector3(6.5, fy + 2.6, 1.5), Color(1, 0.8, 0.58), 1.2, 6.0))
+	lights_spec.append(_omni(Vector3(5.6, fy + 2.5, -4.3), Color(1, 0.82, 0.6), 1.6, 5.0))
+	lights_spec.append(_omni(Vector3(0.9, fy + 1.6, -2.0), Color(0.55, 0.68, 0.92), 0.9, 5.0))
+	lights_spec.append(_omni(Vector3(6.5, fy + 2.6, 1.5), Color(1, 0.8, 0.58), 1.5, 6.0))
 
 
 # ============================ 玻璃（透明，不烘焙） ============================
@@ -491,24 +513,58 @@ func _backdrop(mb: GL.MeshBuilder) -> void:
 	mb.box("asphalt", Vector3(-10.5, -0.12, -9.0), Vector3(-3.4, -0.02, 9.0), 1.0 / 12.0, 0.0, 4)
 	mb.box("concrete_plain", Vector3(-0.3, -0.12, -8.0), Vector3(-0.12, 0.09, 8.0), 0.5, 0.0, 4)  # 门前台阶
 	# 对面店铺立面（暖窗）+ 二层体量错位
-	mb.box("wall_panel", Vector3(-10.0, 0.0, -8.0), Vector3(-9.2, 6.5, 8.0), 1.0 / 3.0, 0.0, 55)
-	mb.box("wall_warm", Vector3(-10.0, 6.5, -8.0), Vector3(-9.2, 8.0, 2.0), 1.0 / 3.0, 0.0, 55)
+	# Flash 验收 1.2 修复：原楼顶 8.0m 高于二层窗顶视线(17m 外≈y7.4)，窗面看不到任何天光；
+	# 主层降到 6.0、上叠层顶 6.4——窗上沿露出暮色天空，窗中段是加大的暖/冷窗与灯牌。
+	mb.box("wall_panel", Vector3(-10.0, 0.0, -8.0), Vector3(-9.2, 6.0, 8.0), 1.0 / 3.0, 0.0, 55)
+	mb.box("wall_warm", Vector3(-10.0, 6.0, -8.0), Vector3(-9.2, 6.4, 2.0), 1.0 / 3.0, 0.0, 55)
 	for wz in [-6.0, -3.0, 0.0, 3.0]:
-		mb.quad("lit_warm", Vector3(-9.18, 1.2, wz + 0.55), Vector3(-9.18, 1.2, wz - 0.55),
-			Vector3(-9.18, 2.5, wz - 0.55), Vector3(-9.18, 2.5, wz + 0.55), Vector3(1, 0, 0),
+		mb.quad("lit_warm", Vector3(-9.18, 1.1, wz + 0.7), Vector3(-9.18, 1.1, wz - 0.7),
+			Vector3(-9.18, 2.6, wz - 0.7), Vector3(-9.18, 2.6, wz + 0.7), Vector3(1, 0, 0),
 			[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
 	for wz in [-5.0, -1.0, 3.0]:
-		mb.quad("lit_cool", Vector3(-9.18, 4.6, wz + 0.45), Vector3(-9.18, 4.6, wz - 0.45),
-			Vector3(-9.18, 5.5, wz - 0.45), Vector3(-9.18, 5.5, wz + 0.45), Vector3(1, 0, 0),
+		mb.quad("lit_cool", Vector3(-9.18, 4.3, wz + 0.65), Vector3(-9.18, 4.3, wz - 0.65),
+			Vector3(-9.18, 5.7, wz - 0.65), Vector3(-9.18, 5.7, wz + 0.65), Vector3(1, 0, 0),
 			[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
-	# 街灯 + 光池 + 停泊摩托剪影
-	mb.cylinder("metal_dark", Vector3(-3.7, 0.0, 4.2), 0.07, 4.6, 8, 0.6, 0.0)
-	mb.box("metal_dark", Vector3(-3.95, 4.45, 4.1), Vector3(-3.5, 4.6, 4.3), 0.7, 0.0)
-	mb.bulb("lamp_lens", Vector3(-3.85, 4.35, 4.2), 0.11)
-	_flat_bd(mb, "asphalt_wet", Vector3(-3.85, 0.02, 4.0), 3.0, 2.5)
-	mb.box("metal_dark", Vector3(-4.6, 0.0, -2.6), Vector3(-3.9, 0.55, -2.2), 0.65, 0.0)
+	# 横向灯牌（对面店招，暮色天光下的中景亮点）
+	mb.quad("lit_cool", Vector3(-9.18, 3.4, 1.2), Vector3(-9.18, 3.4, -3.8),
+		Vector3(-9.18, 3.85, -3.8), Vector3(-9.18, 3.85, 1.2), Vector3(1, 0, 0),
+		[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
+	# 街灯 ×2（含基座）+ 双层光池 + 停泊摩托 + 候车凳 + 斑马线 + 人行道树/邮筒
+	# v5 终验复盘：二层俯瞰橱窗的可见街面是斜视线楔形（可见高度 y ≤ 3.0-0.43×距离），
+	# 对面楼与路灯头全被橱窗檐墙遮挡——可读街景必须落在 d≤3.4 的人行道带内。
+	for lz in [4.2, -2.4]:
+		mb.cylinder("metal_dark", Vector3(-3.7, 0.0, lz), 0.07, 4.6, 8, 0.6, 0.0)
+		mb.box("metal_dark", Vector3(-3.95, 4.45, lz - 0.1), Vector3(-3.5, 4.6, lz + 0.1), 0.7, 0.0)
+		mb.bulb("lamp_lens", Vector3(-3.85, 4.35, lz), 0.11)
+		mb.box("concrete_plain", Vector3(-3.88, 0.0, lz - 0.2), Vector3(-3.52, 0.24, lz + 0.2), 0.55, 0.0)
+	_flat_bd(mb, "pool_glow", Vector3(-3.85, 0.02, 4.0), 2.2, 1.8)
+	_flat_bd(mb, "pool_core", Vector3(-3.85, 0.024, 4.0), 1.1, 0.85)
+	_flat_bd(mb, "pool_glow", Vector3(-3.85, 0.02, -2.2), 2.6, 2.2)
+	_flat_bd(mb, "pool_core", Vector3(-3.85, 0.024, -2.2), 1.3, 1.05)
+	# 停泊摩托（v5 远看被读作“悬浮黑钩”——补座垫/车把/尾灯使其成为可读剪影）
+	mb.box("metal_dark", Vector3(-4.6, 0.0, -2.62), Vector3(-3.9, 0.55, -2.18), 0.65, 0.0)
+	mb.box("metal_teal", Vector3(-4.45, 0.55, -2.54), Vector3(-4.05, 0.68, -2.26), 0.7, 0.0)
+	mb.box("metal_dark", Vector3(-4.42, 0.68, -2.5), Vector3(-4.32, 0.98, -2.3), 0.7, 0.0)
 	mb.cylinder("rubber", Vector3(-4.55, 0.0, -2.4), 0.26, 0.1, 10, 0.6, 0.0)
 	mb.cylinder("rubber", Vector3(-3.95, 0.0, -2.4), 0.26, 0.1, 10, 0.6, 0.0)
+	mb.bulb("bulb_warm", Vector3(-4.56, 0.62, -2.4), 0.045)
+	# 灯杆②城市挂旗 + 候车凳（人行道家具，均在可见高度内）
+	mb.quad("metal_teal", Vector3(-3.62, 1.15, -2.18), Vector3(-3.62, 1.15, -2.62),
+		Vector3(-3.62, 1.72, -2.62), Vector3(-3.62, 1.72, -2.18), Vector3(1, 0, 0),
+		[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
+	mb.box("wood", Vector3(-3.32, 0.36, -3.5), Vector3(-2.92, 0.46, -2.9), 0.7, 0.0)
+	mb.box("metal_dark", Vector3(-3.26, 0.0, -3.44), Vector3(-3.2, 0.36, -3.38), 0.7, 0.0)
+	mb.box("metal_dark", Vector3(-3.04, 0.0, -3.02), Vector3(-2.98, 0.36, -2.96), 0.7, 0.0)
+	# 人行道树（花钵行道树缩小版，d=1.8 冠顶仍在可见楔内）+ 青色邮筒
+	mb.box("wood", Vector3(-2.05, 0.0, 1.35), Vector3(-1.45, 0.32, 1.95), 0.7, 18.0)
+	mb.cylinder("wood", Vector3(-1.75, 0.3, 1.65), 0.08, 1.2, 6, 0.7, 16.0)
+	mb.bulb("plant_green", Vector3(-1.75, 1.75, 1.65), 0.5)
+	mb.bulb("plant_green", Vector3(-1.45, 1.42, 1.45), 0.3)
+	mb.box("metal_teal", Vector3(-2.75, 0.0, -1.1), Vector3(-2.45, 1.05, -0.8), 0.7, 0.0)
+	mb.box("metal_dark", Vector3(-2.73, 1.05, -1.08), Vector3(-2.47, 1.13, -0.82), 0.7, 0.0)
+	# 路缘斑马线（跨街方向条纹，楔形下部可读）
+	for sz in [-1.5, -0.9, -0.3, 0.3]:
+		_flat_bd(mb, "marking", Vector3(-4.9, 0.012, sz), 1.3, 0.4)
 	# 东侧对面山墙（储物间东窗/二层东窗外）
 	mb.box("wall_brick", Vector3(15.0, 0.0, -8.0), Vector3(15.8, 7.0, 4.0), 1.0 / 3.0, 0.0, 55)
 	mb.box("wall_panel", Vector3(14.2, 0.0, -8.0), Vector3(15.0, 5.0, -2.0), 1.0 / 3.0, 0.0, 55)
@@ -597,8 +653,17 @@ func _build_contract_data() -> void:
 	# 固定机位（chapter1-2 §3.7；y = 行走面 + 1.62）
 	anchors["entry_view"] = {"pos": [1.7, 1.62, 1.8], "look": [6.0, 1.45, -1.0]}
 	anchors["workbench_view"] = {"pos": [2.7, 1.62, -3.3], "look": [1.4, 1.35, -5.5]}
-	anchors["gallery_view"] = {"pos": [4.3, FLOOR_2 + 1.62, -0.7], "look": [1.0, 2.1, 0.8]}
-	anchors["dining_view"] = {"pos": [6.1, FLOOR_2 + 1.62, -1.2], "look": [0.6, 4.4, -2.9]}
+	# v7 终验复盘：中距(x7.6)看不见一层中庭——楼板沿口对一层地面是位置性遮挡
+	# （x>3.8 站位恒不可见），而文档构图职责"俯瞰中庭与一层橱窗街景"要求贴近栏杆。
+	# v8 解法（投影几何全推）：站栏杆正后方 0.2m（x3.6，两柱正中 z-0.93）正西俯 40°：
+	# 立柱方位角 ≥67° 出画、扶手/中横杆俯角 ≥73.7° 在画框底(70°)外、楼板沿口 84°
+	# 出画、檐板下阴影带(≥73°)切出画外；画框 10°..70° 三层：上部 2F 墙+店招(正对，
+	# 约 19% 高度)、中部 1F 橱窗暮色街景带、下部中庭地毯+等候椅。
+	# 店招上移 3.20..3.70 避开檐板投射阴影(原被遮下 27%)。
+	anchors["gallery_view"] = {"pos": [3.6, FLOOR_2 + 1.62, -0.93], "look": [0.7, 2.34, -0.93]}
+	# Flash 验收 1.2 修复：原机位距餐桌仅 0.9m 且俯角 3.7°，桌子被挤出画幅底部；
+	# 退到东南 2.7m、视线落在桌面高度(4.35)朝窗——餐桌居中、二层大窗+暮色作背景。
+	anchors["dining_view"] = {"pos": [7.8, FLOOR_2 + 1.62, -1.4], "look": [1.2, 4.35, -2.2]}
 
 	# 门户：门内侧返回街道（chapter1-2 §3.10）
 	portals.append({
@@ -622,7 +687,7 @@ func _load_materials() -> void:
 		"concrete_plain", "wall_warm", "wall_brick", "wall_panel", "wood", "metal_dark",
 		"metal_teal", "metal_orange", "door_dark", "rubber", "marking", "poster",
 		"bulb_warm", "lamp_lens", "lit_warm", "lit_cool", "glass_dark", "roof",
-		"pavement", "asphalt", "asphalt_wet",
+		"pavement", "asphalt", "asphalt_wet", "sign_repair",
 	]
 	for k in keys:
 		var path := "%s/%s.tres" % [MAT_DIR, k]
@@ -636,9 +701,25 @@ func _load_materials() -> void:
 	wood_floor.roughness = 0.72
 	mats["wood_floor"] = wood_floor
 	var rug := StandardMaterial3D.new()
-	rug.albedo_color = Color(0.58, 0.30, 0.26)
+	rug.albedo_color = Color(0.66, 0.36, 0.30)
 	rug.roughness = 0.97
 	mats["rug"] = rug
+	# 门外光池（Backdrop 不烘焙、无实时光——路灯落地池必须自发光才可见）
+	# v5 终验复盘：单层大光池被读作“平坦米色梯形”；改外池+更亮内芯两层伪衰减。
+	var pool := StandardMaterial3D.new()
+	pool.albedo_color = Color(0.55, 0.47, 0.36)
+	pool.emission_enabled = true
+	pool.emission = Color(1.0, 0.72, 0.42)
+	pool.emission_energy_multiplier = 0.55
+	pool.roughness = 0.42
+	mats["pool_glow"] = pool
+	var pool_core := StandardMaterial3D.new()
+	pool_core.albedo_color = Color(0.62, 0.54, 0.42)
+	pool_core.emission_enabled = true
+	pool_core.emission = Color(1.0, 0.8, 0.52)
+	pool_core.emission_energy_multiplier = 0.95
+	pool_core.roughness = 0.36
+	mats["pool_core"] = pool_core
 	var sofa := StandardMaterial3D.new()
 	sofa.albedo_color = Color(0.36, 0.44, 0.50)
 	sofa.roughness = 0.95
@@ -651,6 +732,11 @@ func _load_materials() -> void:
 	cloth.albedo_color = Color(0.84, 0.80, 0.72)
 	cloth.roughness = 0.95
 	mats["cloth"] = cloth
+	# _plant/行道树叶冠用（修复既有缺陷：原引用未定义键，盆栽面一直无材质）
+	var plant := StandardMaterial3D.new()
+	plant.albedo_color = Color(0.33, 0.46, 0.30)
+	plant.roughness = 0.95
+	mats["plant_green"] = plant
 	var term := StandardMaterial3D.new()
 	term.albedo_color = Color(0.06, 0.10, 0.12)
 	term.emission_enabled = true
@@ -663,12 +749,15 @@ func _load_materials() -> void:
 	vending.emission = Color(0.35, 0.85, 0.80)
 	vending.emission_energy_multiplier = 1.4
 	mats["vending_panel"] = vending
-	# 透明玻璃（不烘焙）
+	# 透明玻璃（不烘焙）；暮色微光——Flash 验收指出窗面近纯黑(1.2 修复：窗外无天光+暗街)
 	var glass := StandardMaterial3D.new()
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.albedo_color = Color(0.62, 0.73, 0.82, 0.32)
 	glass.roughness = 0.14
 	glass.metallic = 0.1
+	glass.emission_enabled = true
+	glass.emission = Color(0.30, 0.38, 0.55)
+	glass.emission_energy_multiplier = 0.5
 	mats["glass_interior"] = glass
 
 

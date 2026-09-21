@@ -805,9 +805,10 @@ func _plaza_props(mb: GL.MeshBuilder) -> void:
 	mb.box("metal_dark", Vector3(29.6, 1.05, 23.1), Vector3(31.0, 1.35, 24.3), 0.7, 20.0)
 	mb.cylinder("rubber", Vector3(29.8, 0.17, 24.4), 0.16, 0.34, 8, 0.8, 16.0)
 	mb.cylinder("rubber", Vector3(30.8, 0.17, 24.4), 0.16, 0.34, 8, 0.8, 16.0)
-	# 门外轮胎堆
+	# 门外轮胎堆（Flash 验收 1.2：从 (30.6,33.5) 移到门南侧——原位恰在 repair_shop_door
+	# 锚点到行人小门的视线上，近距巨物遮挡门户；也避开门扇向街开启的扫掠区）
 	for i in 3:
-		mb.cylinder("rubber", Vector3(30.6, 0.19 + i * 0.36, 33.5), 0.52, 0.3, 12, 0.9, 18.0)
+		mb.cylinder("rubber", Vector3(30.9, 0.19 + i * 0.36, 34.9), 0.52, 0.3, 12, 0.9, 18.0)
 	# 长椅 ×2 + 花坛
 	GL.bench(mb, 18.5, 20.5, PI / 2, KEYS)
 	GL.bench(mb, 18.5, 33.5, PI / 2, KEYS)

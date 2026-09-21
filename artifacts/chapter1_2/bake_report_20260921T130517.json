@@ -1,0 +1,22 @@
+{
+  "detail": {
+    "expected": [
+      "Generated/PortalDoors/ShopDoorPivot/DoorLeaf",
+      "Generated/StaticGeometry/InteriorGlassMesh",
+      "Generated/StaticGeometry/InteriorStaticMesh"
+    ],
+    "missing": [],
+    "users": [
+      "../Backdrop/InteriorBackdropMesh",
+      "Generated/PortalDoors/ShopDoorPivot/DoorLeaf",
+      "Generated/StaticGeometry/InteriorGlassMesh",
+      "Generated/StaticGeometry/InteriorStaticMesh"
+    ]
+  },
+  "engine_version": "4.7.2-stable (official)",
+  "job_id": "bake-20260921T130503",
+  "reason": "",
+  "schema_version": 1,
+  "success": true,
+  "utc": "2026-09-21T13:05:17"
+}

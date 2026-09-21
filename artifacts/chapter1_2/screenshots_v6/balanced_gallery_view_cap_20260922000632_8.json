@@ -1,0 +1,54 @@
+{
+  "anchor_id": "gallery_view",
+  "build_id": "",
+  "camera_pose": {
+    "anchor_id": "gallery_view",
+    "far_m": 700.0,
+    "fov_deg": 60.0,
+    "keep_aspect": 1,
+    "map_id": "m01_repair_interior",
+    "near_m": 0.300000011920929,
+    "position": [
+      4.09999990463257,
+      4.76999998092651,
+      -0.930000007152557
+    ],
+    "quaternion": [
+      -0.276466995477676,
+      0.650819540023804,
+      0.276467025279999,
+      0.650819540023804
+    ]
+  },
+  "content_revision": "1.2.0",
+  "effective_state": {
+    "aa_mode": "msaa_2x",
+    "focused": true,
+    "frame_cap": 60,
+    "glow_enabled": false,
+    "minimized": false,
+    "occlusion_enabled": true,
+    "particle_emitter_count": 0,
+    "probe_count": 0,
+    "profile_id": "balanced",
+    "render_scale": 1.0,
+    "renderer": "mobile",
+    "runtime_fill_count": 0
+  },
+  "engine_version": "4.7.2-stable (official)",
+  "gpu_adapter": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+  "image_height": 1080,
+  "image_width": 1920,
+  "label": "balanced_gallery_view",
+  "map_id": "m01_repair_interior",
+  "profile_id": "balanced",
+  "render_stats": {
+    "draw_calls": 4,
+    "fps": 40.0,
+    "primitives": 4356,
+    "video_mem_mb": 196.0
+  },
+  "request_id": 8,
+  "schema_version": 1,
+  "utc_time": "2026-09-21T16:06:32"
+}

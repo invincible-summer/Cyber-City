@@ -444,6 +444,8 @@ func _run_automation_shoot(args: PackedStringArray) -> void:
 func _shoot_anchors(shot_root: Node, tier: String) -> void:
 	for anchor in camera_ctl._anchor_order:
 		camera_ctl.go_to_anchor(anchor)
+		# 1.2 修复：拍摄前把鼠标移到右下角，避免视口内光标残留在画面中部
+		Input.warp_mouse(get_viewport().get_visible_rect().end - Vector2(12.0, 12.0))
 		# 等待须大于 CaptureService.THROTTLE_MSEC(500ms)，否则 request_capture 返回
 		# ERR_BUSY 被静默跳过（1.2 修复：balanced 档曾因此缺 entry/workbench 两张）
 		await get_tree().create_timer(0.62).timeout
