@@ -1425,7 +1425,781 @@ export_presets 使用 all_resources；即便 Godot 最终可能按过滤策略�
 
 ---
 
-## 19. C13-18 — 最终证据格式
+## 19. 正式场景构建总目标 — 把 m01_afterglow 做成 1.3 成品主场景
+
+### 19.1 当前场景不是推倒重做对象
+
+当前主场景已经具备可保留的骨架：
+
+- generated 层已有 12 栋主要街道楼体（西侧 6、东侧 6），并有真实楼层尺度、窗格、店面、阳台/屋顶差异；
+- 维修铺是明确的主地标，已有大橱窗、卷帘门、主招牌、雨棚、工具/轮胎/油桶、门口门户；
+- 高架站已经形成街尾视觉终点，包含桥面、轨道、站台、雨棚、站牌和楼梯；
+- authored 层已有 service court / station forecourt / roof terrace 三个空间；
+- chapter1-2 已增加行道树、自行车棚、便利店外摆、夜宵摊、维修广场、晾衣生活区等静态叙事物；
+- 当前街区有 7 个正式锚点；
+- Backdrop 已有 22 个低模塔楼 + 西北信号塔；
+- chapter1-1 的街区 6 机位曾完成一轮构图/可读性验收。
+
+所以 1.3 的美术任务是**在既有空间关系上深化**，而不是换一张图、换一套世界观，或者用大量霓虹覆盖现有问题。
+
+以下现有决定默认保留，只有截图证据证明退化才调整：
+
+- 主街南北纵深和街尾高架站终点；
+- 余晖维修作为主地标；
+- service court 的拱门框景；
+- roof terrace 的“生活前景 + 城市中远景”职责；
+- station forecourt 的人眼高度站牌/阶梯/雨棚构图；
+- 固定“雨停后的蓝调时刻”；
+- 暖店内 / 冷环境 / 青色交通导视 / 橙色维修点缀的基础色语法；
+- Mobile renderer + LightmapGI + 少量 Balanced 可选实时效果；
+- strict single-active-map。
+
+### 19.2 当前还不足以达到“真实赛博都市”的位置
+
+这里不是把已有内容判为失败，而是定义从“合格成品街区”到“项目主视觉场景”之间的差距。
+
+从当前构建代码能直接确认：
+
+1. 主要楼体变化已经存在，但多数立面的二级/三级信息仍集中在窗格、店招、屋顶套件；外挂机电、楼层服务设施、检修层、线缆/桥架、消防/通信细节仍偏少。
+2. “赛博”信息目前主要来自发光招牌、青色金属、共享滑板车牌和少量终端感小件；城市的**技术改造痕迹**还没有形成系统。
+3. Backdrop 的 22 栋塔楼本质仍是随机长方体 + 3 种发光 facade 材质；远景有层次，但城市轮廓的建筑类型辨识度不足。
+4. 当前材质体系以程序化 albedo + scalar roughness/metallic 为主，近景“材料响应差异”还能进一步加强；尤其 wet asphalt 当前带 metallic 值，不适合作为真实潮湿沥青的最终表现。
+5. 已有生活细节是有效的，但部分街段仍主要靠均匀窗格/店招建立信息密度；缺少“旧建筑被新设备逐步加装”的垂直层。
+6. 主街 PropsStreetEnrich 覆盖范围较大；继续把新小件全部堆进一个跨全街的大 mesh，会削弱 visibility range / 区域剔除价值。
+
+因此正式构建的重点不是“再加更多随机小物”，而是建立**有层级的城市系统**。
+
+### 19.3 1.3 艺术方向：滨海旧城上的复古未来改造层
+
+目标不是高饱和“霓虹夜店街”，而是：
+
+**真实旧城区 + 长期维修痕迹 + 近未来公共基础设施 + 克制的电子标识 + 雨后蓝调。**
+
+画面分三层：
+
+1. **城市本体层**：混凝土、砖、金属窗框、雨棚、排水、店铺、住居、站体，比例可信。
+2. **改造技术层**：通信盒、传感器、充电桩、公共终端、电子导视、线缆桥架、外挂机电、检修灯、站务设备。
+3. **生活痕迹层**：自行车、配送箱、晾衣、维修件、花盆、纸箱、摊车、座椅、垃圾/回收设施、墙面补丁。
+
+“赛博感”主要由第 2 层和冷暖照明关系产生，不依赖把第 1 层全部做成发光表面。
+
+### 19.4 视觉语言硬约束
+
+- 单个主构图中，强发光文字/灯带应是焦点而不是背景噪声；不要让大部分建筑轮廓同时发光。
+- 洋红/紫色不是本项目默认主色；如使用，只能是极小面积第三色点缀。
+- 维修/生活区以暖橙、旧木、灰墙为主；站务/公共系统以青绿/冷白为主。
+- 近景必须先靠实体厚度、接触、粗糙度和明暗成立，再靠 emissive。
+- 不新增持续下雨、全屏扫描线、色差、SSR、体积雾等“赛博滤镜”掩盖场景。
+- 城市应有安静暗面和无广告区域；没有留白就没有地标。
+
+---
+
+## 20. 正式场景制作架构 — 扩内容但不继续堆巨型脚本
+
+### 20.1 generated / authored 的职责继续不变
+
+generated 继续负责：
+
+- 主街道路/建筑主量体；
+- 基础店面；
+- 维修铺主体；
+- 高架站主体；
+- 基础远景；
+- 可重复基础材质。
+
+authored 继续负责：
+
+- 近景 hero detail；
+- service court / station forecourt / roof terrace；
+- 街区生活痕迹；
+- 新增赛博基础设施；
+- 最终构图精修。
+
+不把 1.3 的美术新增全部塞回 build_m01 的基础建筑算法，也不让 assemble 变成内容生成器。
+
+### 20.2 新增一个且只新增一个通用细节库
+
+新增：
+
+tools/m01_detail_lib.gd
+
+职责是“可复用的小型静态构件”，不保存场景状态，不写文件。
+
+第一批只实现真实会重复使用的 primitive：
+
+- wall_conduit：墙面电缆/管束；
+- cable_tray：桥架/线槽；
+- service_box：配电/通信箱；
+- vent_duct：方/圆风管与支架；
+- ac_rack：2–4 台空调外机组合；
+- utility_meter_bank：电表/水表组；
+- lightbox_sign_frame：非文字灯箱结构；
+- public_terminal：公共信息/支付终端；
+- parcel_locker：快递/储物柜；
+- charging_pedestal：轻型代步/维修充电柱；
+- vending_bank：1–3 台售货机组合；
+- rooftop_antenna：小型通信杆/天线阵列；
+- service_railing：检修栏杆/小平台；
+- pipe_bridge：跨墙/跨巷管线；
+- hazard_marker：低成本警示条/编号牌载体。
+
+只抽取真正重复的构件。某个物件只出现一次时直接留在对应 region builder，不为了“库化”再造抽象。
+
+### 20.3 authored region mesh 重新分组
+
+保留现有：
+
+- PropsServiceCourt
+- PropsStationForecourt
+- PropsRoofTerrace
+
+不再继续把所有新增主街细节塞入 PropsStreetEnrich。
+
+将主街新增内容按实际可见区域分为最多 3 个区域 mesh：
+
+- PropsStreetSouth：Z 约 18…58，便利店/维修铺/南段住商混合；
+- PropsStreetMid：Z 约 -20…18，主街中心/侧巷入口；
+- PropsStreetNorth：Z 约 -58…-20，高架站南侧/北段街面。
+
+现有 PropsStreetEnrich 的物件在 1.3 实施时按坐标迁入上述三个 mesh；迁移后删除旧单体 PropsStreetEnrich，避免同时维护两套。
+
+每个 region 都：
+
+- 作为 detail_props；
+- 在 region_manifest 中有 bounds；
+- 有 Eco/Balanced 可见距离；
+- 保持自身 MeshBuilder 合并，避免每个小物变一个节点。
+
+### 20.4 为什么不用大量 MultiMesh
+
+当前新增量仍是几十到几百个低模构件，不是上万实例。
+
+Godot 4.7 文档说明 MultiMesh 的实例是整批可见/不可见，不能对每个实例单独做常规屏幕/视锥剔除。因此本章只在“同一区域内数量明显很多、材质和 lightmap 需求允许”的物件上评估 MultiMesh；否则继续使用制作阶段按区域合并后的 ArrayMesh。
+
+参考：
+
+https://docs.godotengine.org/en/4.7/tutorials/performance/using_multimesh.html
+
+### 20.5 细节层级
+
+每个正式区域遵循：
+
+- L0：建筑/道路/站体主量体，永远存在；
+- L1：雨棚、外挂机电、大招牌、平台、栏杆，构图必需；
+- L2：公共终端、售货机、管线、箱柜、街具，Balanced/Eco 都保留，但可按合理距离裁；
+- L3：小纸箱、工具、杯罐、线夹、贴纸等微细节，只进 detail_props，远距离裁掉。
+
+不要把能决定轮廓/叙事的 L1/L2 误放进很短 visibility range。
+
+---
+
+## 21. 分区正式施工任务
+
+### 21.1 主街 — 从“有商铺的街”升级为“近未来旧城主轴”
+
+保留现有建筑位置与 12 栋主要量体。
+
+新增重点不是继续加楼，而是增加**立面纵深和城市系统**。
+
+#### 建筑立面二级层
+
+至少在 6 栋主视线建筑上做差异化处理：
+
+- 2 栋：外挂机电架 + 成组空调机 + 冷凝排水管；
+- 2 栋：外挑检修小平台/服务栏杆；
+- 2 栋：竖向电缆槽 + 配电/通信盒；
+- 至少 2 栋：屋顶增加通信杆、天线或水箱/设备体；
+- 至少 3 栋：窗户加入卷帘、百叶、窗帘/半遮状态，不再所有窗同一逻辑；
+- 重要街角增加建筑编号、维修标签或小型非发光铭牌。
+
+不要求每栋都不同；要求人眼能识别 4–6 种“建筑被改造过的方式”。
+
+#### 商业信息层
+
+现有主招牌继续保留。
+
+新增：
+
+- 4–6 块小型垂直/侧挂 secondary signs；
+- 2–3 块纯印刷/非发光价目/服务牌；
+- 2 个公共区域编号/导视牌；
+- 1 个街道信息终端；
+- 1 组快递柜/智能储物柜；
+- 1 组售货机，优先放在主街中段或站前过渡区。
+
+约束：
+
+- secondary sign 不得比“余晖维修”“霓湾站”更亮；
+- 同一画面不要同时出现 10 块同权重招牌；
+- 中文为主、英文为辅，继续使用项目内 Noto Sans SC；
+- 不新增外部商业品牌。
+
+#### 地面与街道系统
+
+增加：
+
+- 局部路缘编号/色带；
+- 2–3 处更明确的排水沟/落水路径；
+- 一处道路修补/检查井组合；
+- 站前与人行过街位置加入有限触觉铺装/导向纹理；
+- 维修铺附近增加“服务区/禁止堆放”地面标线；
+- wet patch 只出现在低洼/排水附近，不均匀撒满全路。
+
+目标：让地面看起来有市政逻辑，而不是纹理平面。
+
+### 21.2 维修铺广场 — 全图第一近景 Hero Zone
+
+现有 repair_shop_view 与 repair_shop_door 是最重要的人眼高度近景，不改其空间职责。
+
+新增：
+
+- 雨棚真实支架/排水链或落水管；
+- 墙面电气盒、服务编号、摄像/传感器小件；
+- 1 个充电/诊断柱，与维修主题对应；
+- 1 组零件笼/废旧件架，放在不挡门户的位置；
+- 卷帘门侧增加软管卷盘/消防/电源接口；
+- 橱窗后工作台增加 2–3 个可读工具/零件剪影层；
+- 广场地面增加轮胎/维修拖行痕和局部油污，但避免“脏贴纸铺满”；
+- 门框、雨棚、招牌检查实体厚度和接触，继续遵守“贴墙 quad 必须离墙足够距离”的 v7 教训；
+- 门扇摆动范围、repair_shop_door 视线、2.2m portal radius 内不得放新障碍。
+
+色彩：
+
+- 主暖色仍来自店内/余晖维修；
+- 技术设备采用深灰 + 少量橙；
+- 不在维修铺再加第二套强青色主招牌，避免抢主视觉。
+
+### 21.3 主街中段与侧巷入口 — 形成“信息密度过渡”
+
+当前主街到 service court 的空间已经连通。
+
+新增：
+
+- 侧巷口上方 1 组低密度线缆/桥架；
+- 1 组通信/电表箱；
+- 1–2 个墙面小风机/排气口；
+- 垃圾/回收分类箱一组；
+- 夜宵摊周边加折叠凳/收纳箱/菜单牌，不加人物；
+- 巷道墙面继续用少量海报，但新增 1 个“旧海报撕除/贴补”层次；
+- 落水管下方加强水痕和局部湿地联系。
+
+这一区域的角色是从“主街商业”过渡到“后场生活”，不能亮度和招牌密度高于主街。
+
+### 21.4 Service Court — 最强生活气息区
+
+保留“拱门 → 湾流洗衣”的构图。
+
+在当前洗衣、维修、小吃三个门面基础上增加：
+
+- 洗衣门口公共洗衣推车/篮筐；
+- 1 组储物柜/配送柜；
+- 1 台旧式自动售货机或饮水机；
+- 外墙管线、表箱、冷凝水排管；
+- 北翼附楼增加服务梯/小检修平台中的一种；
+- 晾衣区补少量衣夹/杆件逻辑，不增加高面数布料模拟；
+- 现有猫窝、杂物架继续保留，不再额外“撒垃圾”；
+- 拱门内只保留 1 个暖光焦点，湾流洗衣仍是视觉终点。
+
+安静留白必须保留。广场中心至少留一块能让画面呼吸、也能供未来演员站位的空地。
+
+### 21.5 Station Forecourt — 全图最强公共未来基础设施区
+
+这是最适合强化“赛博城市”而不破坏生活区真实性的位置。
+
+新增：
+
+- 1 个公共信息/票务终端；
+- 1 个时刻/方向电子牌，发光强度低于主站牌；
+- 1 组站务配电/通信柜；
+- 入口雨棚下 cable tray/灯具结构；
+- 高架桥底增加少量检修梁、编号标识、管线；
+- 应急电话/消防箱/维修门中的 1–2 类；
+- 入口附近有限触觉铺装和排队导向；
+- 自行车/轻型代步停放继续存在，但整理成明确停放系统；
+- 售票亭增加门、檐口、服务窗细节，避免继续表现为大块墙盒；
+- 站牌/公共系统统一青绿/冷白色语法。
+
+不新增动态列车。远处轨道只需要结构和少量静态信号灯形成交通想象。
+
+### 21.6 Roof Terrace — “人住在赛博城市里”而不是设备展览
+
+现有桌椅、花箱、晾衣、设备箱全部保留。
+
+增加：
+
+- 小型通信天线/中继杆 1 组；
+- 风向/天气传感器 1 个；
+- HVAC 排气帽/短风管 2–3 个；
+- 设备到楼梯间之间的 cable tray；
+- 局部维护标线/设备编号；
+- 仅 Balanced 开启的轻微 HVAC 蒸汽/暖气排气可占一个粒子名额。
+
+不要用巨型全息广告占领屋顶。这里的核心是“居民生活 + 城市技术背景”的反差。
+
+### 21.7 高架站与 Station View
+
+现有站体轮廓已经成立，1.3 只补中景结构：
+
+- 轨道侧增加少量固定件/检修走道轮廓；
+- 雨棚边缘加排水沟；
+- 桥面/支柱增加编号与警戒色小块；
+- 站台远处可加入 2–3 个静态发光信息块形成尺度；
+- 站下空间保持可读，不堆满设备。
+
+station_view 的优先级是轮廓、基础设施尺度和城市远景，不需要让高位镜头看到每个近景小道具。
+
+---
+
+## 22. 远景与城市轮廓重构
+
+### 22.1 当前问题
+
+当前 Backdrop 的 22 栋建筑主要由随机宽/深/高 Box 组成，再分配 3 个 backdrop 发光材质。
+
+它已经解决“世界尽头”问题，但不够表达一座有结构的近未来滨海城市。
+
+### 22.2 保持低成本，改成 4 类远景 archetype
+
+不把 22 增到 100。
+
+改造为约 18–24 个主体，但从以下类型中生成：
+
+1. residential_slab：宽而中高，屋顶水箱/机房，暖窗少量；
+2. commercial_tower：有 1–2 次退台、冷色竖向窗带；
+3. infrastructure_block：较低、宽、顶部大量设备/天线；
+4. landmark_tower：仅 1–2 栋，轮廓不对称，有通信顶冠。
+
+西北 signal tower 保留，并作为第五种特殊轮廓。
+
+每个远景 archetype 仍使用低面数 Box/Cylinder 组合；不做完整窗框几何。
+
+### 22.3 远景发光策略
+
+当前 backdrop1/2/3 是整材质 emissive texture。
+
+1.3 调整为：
+
+- 建筑主体保持低亮度非发光/弱发光；
+- 只有窗带/顶部标识/通信灯承担 emissive；
+- 不让整栋楼像自发光塑料块；
+- 不需要真实动态窗灯；
+- 雾负责统一远景，不靠降低模型质量到纯剪影。
+
+### 22.4 城市层次
+
+street_view / roof_terrace_view / station_view 中至少形成：
+
+- 近景：街具/栏杆/路沿；
+- 中景：主街楼体/站体；
+- 远中景：高架/商业塔；
+- 远景：通信塔和 2–3 个高轮廓；
+- 天空留白。
+
+若新 skyline 让 station_view 或 roof_terrace_view 的主地标被吃掉，优先删背景体量，不要移动全部机位迁就背景。
+
+---
+
+## 23. 材质、表面与招牌正式精修
+
+### 23.1 保留当前材料库主体
+
+现有主材质：
+
+- bluegray / warm / panel / brick；
+- concrete；
+- dark / teal / orange metal；
+- asphalt / pavement / plaza / alley；
+- wood / rubber；
+- warm/cool emissive；
+- shop glass / interior back；
+- station steel；
+- signs。
+
+已经足够形成项目统一身份，不新建几十个近似材质。
+
+### 23.2 修 wet asphalt 的物理语义
+
+当前 asphalt_wet 通过 _tex_mat_dark 使用 metallic=0.22。
+
+潮湿沥青不应靠金属度产生高光。
+
+1.3：
+
+- metallic=0；
+- roughness 约 0.20–0.35，以实际截图决定；
+- 颜色只略深；
+- 通过湿区形状和烘焙/环境反差表现雨后，而不是镜面地板。
+
+### 23.3 选择性增加 roughness/detail，而不是全材质 PBR 重做
+
+允许新增少量制作纹理：
+
+- asphalt_rough；
+- pavement_rough；
+- wall_grime/detail mask；
+- metal_painted_rough；
+- 可选 compact signage/utility atlas。
+
+尺寸以 512 为主，地面可 1024。
+
+不要求 normal map 全覆盖。近景若通过几何厚度 + roughness 已成立，就不为“PBR 完整”强加法线贴图带宽。
+
+### 23.4 Utility / decal atlas
+
+新增一个小型原创 atlas，服务于静态 quad：
+
+- 建筑编号；
+- 检修标签；
+- 高压/维修警示；
+- 站务编号；
+- 箭头/方向；
+- 回收/公共设施图标；
+- 贴补/旧标识。
+
+不用 Godot Decal 节点堆满街区；直接在 authored mesh 中以少量 quad 贴在明确位置，继续参与正常区域 mesh 管理。
+
+### 23.5 招牌层级
+
+保留现有主品牌：
+
+- 余晖维修；
+- 霓湾站；
+- 海风便利；
+- 湾流洗衣；
+- 岬角咖啡；
+- 老巷面馆；
+- 临港药房；
+- 蓝鸟电器；
+- 湾区旅社等。
+
+新招牌原则：
+
+- 新增 4–6 secondary business/service signs 即可；
+- 至少一半非发光；
+- secondary sign 字号与亮度明显低于主招牌；
+- 不复制现实品牌；
+- 继续走 gen_signs + 固定 Noto Sans SC；
+- 生成后检查 mipmap 下远景闪烁和中文缺字。
+
+### 23.6 透明材质边界
+
+不把全街橱窗改成高成本真实透明玻璃。
+
+继续采用：
+
+- 浅景 interior box；
+- 深色/低粗糙玻璃；
+- 必要时单独小面积透明 surface。
+
+Godot 3D 性能文档提醒透明物体需要按后到前排序，数量过多会增加成本；1.3 优先保持当前“低成本可读玻璃”策略。
+
+参考：
+
+https://docs.godotengine.org/en/latest/tutorials/performance/optimizing_3d_performance.html
+
+---
+
+## 24. 光照与氛围正式精修
+
+### 24.1 固定色彩剧本
+
+一张图只讲一个时间：
+
+“雨停后 10–20 分钟的蓝调时刻”。
+
+四个光色角色：
+
+| 角色 | 色彩 | 用途 |
+| --- | --- | --- |
+| 冷环境 | 蓝灰 | 天空、阴影、远景 |
+| 暖生活 | 琥珀/暖白 | 店内、维修铺、洗衣、摊位 |
+| 公共科技 | 青绿/冷白 | 站务、导视、终端 |
+| 服务警示 | 橙红 | 维修、消防、路障、小面积点缀 |
+
+不要再新增一个与它们同权重的紫/粉主色体系。
+
+### 24.2 LightmapGI 仍是主光照
+
+Godot 4.7 的 Mobile renderer 支持 LightmapGI，LightmapGI 的运行时开销适合本项目这种静态场景；Mobile 对同一 mesh 的实时 Omni/Spot 数量有固定限制，因此新增视觉密度继续优先通过静态 bake 和 emissive，而不是大量实时灯。
+
+参考：
+
+https://docs.godotengine.org/en/4.7/engine_details/architecture/internal_rendering_architecture.html
+
+### 24.3 静态灯布置原则
+
+每个区域不是“每块招牌一个灯”，而是建立少量真实光池：
+
+- repair plaza：主橱窗/雨棚暖光；
+- main street：路灯 + 店铺内光，局部冷标识；
+- service court：洗衣店 + 拱门/小吃摊；
+- station forecourt：雨棚暖白 + 站务青色；
+- roof terrace：生活小灯 + 城市反差。
+
+烘焙完成后检查：
+
+- 墙面接触不漂；
+- 雨棚底不死黑；
+- 强招牌不把周围墙体烧白；
+- 青/橙光池有边界，不整区染色；
+- 近景暗部仍能看出材料。
+
+### 24.4 动态氛围预算
+
+总预算仍遵守 AGENTS：
+
+- 持续动画节点 ≤6；
+- 粒子发射器 ≤2；
+- Eco particles=false；
+- Balanced particles=true。
+
+优先候选：
+
+1. 夜宵摊轻微蒸汽；
+2. roof HVAC 轻微排气。
+
+若现有 ambient 已占满 2 个 emitter，不新增第三个；先比较哪个对画面价值更高。
+
+### 24.5 Glow
+
+Balanced 的 glow 修复为真正生效后再调强度。
+
+原则：
+
+- Glow 用于灯牌和灯泡的光晕；
+- 不用 Glow 把普通白墙变成亮块；
+- Eco 关闭后，所有主招牌仍靠自身 albedo/emission 可读；
+- 美术验收必须同时看 Eco，不能只以 Balanced bloom 画面判断。
+
+---
+
+## 25. 七个街区固定机位的 1.3 构图职责
+
+锚点 ID 不变。允许小幅移动位置/look target，但任何调整必须有 before/after 证据，不能靠换机位隐藏缺陷。
+
+| 锚点 | 1.3 构图目标 | 必须读到的层次 |
+| --- | --- | --- |
+| street_view | 全图主宣传构图 | 前景路沿/街具 → 两侧住商立面 → 高架站 → 远景塔楼 |
+| repair_shop_view | Hero 近景 | 余晖维修招牌、雨棚厚度、橱窗/卷帘、维修道具、暖光池、技术服务件 |
+| station_view | 高位基础设施构图 | 高架桥/站台轮廓、街区屋顶层、远景城市/信号塔 |
+| repair_shop_door | 人体尺度与门户 | 小门清晰、门扇可读、入口不堵、墙面服务细节不过度 |
+| service_court_view | 生活后场构图 | 拱门框景、湾流洗衣、管线/表箱、晾衣/推车、中心留白 |
+| roof_terrace_view | “人住在未来城市” | 栏杆/桌椅/花箱前景、通信/HVAC 中景、城市远景 |
+| station_forecourt_view | 公共未来城市构图 | 霓湾站牌、阶梯、雨棚、公共终端/导视、结构与天际线 |
+
+### 25.1 Hero 三机位
+
+以下三张作为 1.3 主视觉：
+
+- street_view
+- repair_shop_view
+- station_forecourt_view
+
+它们优先获得最高精细度和最后一轮构图时间。
+
+### 25.2 评分
+
+继续使用既有 6 项：
+
+- 空间/比例；
+- 几何/接触；
+- 材质；
+- 光照；
+- 构图；
+- 细节一致性。
+
+硬失败：
+
+- 任一单项 <2；
+- 缺面/世界空洞；
+- 明显 z-fighting；
+- 主要中文招牌不可读；
+- 近景物体悬浮/穿墙；
+- 大面积无解释纯色盒；
+- 发光整片过曝；
+- 机位位于 exclusion 内。
+
+项目原有合格线仍是 ≥14/18。
+
+1.3 成品目标提高为：
+
+- 7 个 street 锚点全部 ≥15/18；
+- Hero 三机位目标 ≥16/18。
+
+若某镜头只有 14/18，不能把它写成 1.3 美术完成；要修到 15 或在 review 中明确列为未完成项。
+
+---
+
+## 26. 场景性能预算与 HLOD 规则
+
+### 26.1 先记录 post-fix 基线
+
+C13-01…C13-17 修完、authored 去重完成后，在任何正式美术新增之前记录：
+
+- generated static tris；
+- generated props tris；
+- authored static tris；
+- 每个 authored region props tris；
+- node count；
+- Lightmap users；
+- lightmap/texture video memory；
+- expanded_v11 两档一轮基线；
+- 7 锚点截图。
+
+这套叫 art_baseline_v13。
+
+后面所有美术比较都相对它，而不是相对 chapter1 旧 50-node 数据。
+
+### 26.2 新增几何预算
+
+默认预算：
+
+- 1.3 新增 authored detail 净增 ≤15k triangles；
+- 单个新 region props mesh 建议 ≤6k triangles；
+- backdrop 重构不超过约 8k 新 triangles；
+- 若某一 hero 改动明显超预算，先证明实际帧时间仍稳定再接受。
+
+这些是控制线，不是为了少 1 个三角做微优化。
+
+### 26.3 surface / material 控制
+
+每个区域 mesh 优先复用已有 key。
+
+1.3 新增独立材质 key 控制在约 6 个以内，不把每个招牌/设备做一个新 StandardMaterial。
+
+### 26.4 Visibility range
+
+所有 L2/L3 region props 设置 visibility range。
+
+参考原则：
+
+- Eco：45–60m；
+- Balanced：65–100m；
+- Hero 构图中会成为轮廓的 L1 不裁；
+- 具体值以 7 锚点看不到 pop 为准。
+
+Godot 4.7 提供手工 Visibility ranges/HLOD；当前已有 region detail range 机制，应继续利用而不是另建 LOD 框架。
+
+参考：
+
+https://docs.godotengine.org/en/4.7/engine_details/architecture/internal_rendering_architecture.html
+
+### 26.5 实时负担不因“更赛博”增长
+
+最终仍满足：
+
+- Eco：0 optional probe、0 optional particle、0 runtime fill light；
+- Balanced：≤2 probe、≤2 particle、≤2 runtime fill light；
+- 主体光照全靠 baked LightmapGI；
+- 不增加持续逐帧脚本到每个招牌/终端；
+- 不新增动态大屏视频。
+
+### 26.6 性能目标
+
+最终正式数据以 §30 为准。
+
+美术阶段的快速红线：
+
+- Eco 不得明显跌离 30 FPS cap；
+- Balanced 不得明显跌离 60 FPS cap；
+- 发现连续掉帧先定位区域 mesh / transparency / real-time light / texture memory，再继续加内容；
+- draw_calls monitor 在当前 Mobile 项目历史上口径偏低，不能单独作为真值；同时看 frame time、visible primitives、video memory 与 Windows 工作集。
+
+---
+
+## 27. 正式场景施工顺序与验收
+
+### 27.1 施工顺序
+
+工程修复完成后，严格按以下顺序做 m01_afterglow：
+
+1. 记录 art_baseline_v13。
+2. 拆分 PropsStreetEnrich → South/Mid/North，画面必须无变化。
+3. 重构 backdrop archetypes，先只看 street/station/roof 三机位。
+4. 主街 6 栋重点立面增加机电/通信/检修层。
+5. repair plaza Hero pass。
+6. station forecourt Public-Tech pass。
+7. service court Life-Tech pass。
+8. roof terrace Life-Tech pass。
+9. 主街公共终端/快递柜/售货机/secondary signs。
+10. 地面排水、标线、wet patch 逻辑。
+11. 材质 roughness/detail 与 wet asphalt 修正。
+12. utility/sign atlas 与 secondary signage。
+13. 静态灯光重新平衡。
+14. Balanced 动态氛围最多 2 emitter。
+15. 七机位构图微调。
+16. 全量重烘。
+17. 7×2 截图 review。
+18. 性能与内存。
+19. 若性能不达标，优先减 L3/远景/透明，不删 Hero 必需层。
+20. 最终两图回归与 Release。
+
+### 27.2 每个区域使用“三级细节”验收
+
+一个区域不能只靠“多几个盒子”算完成。
+
+每个 Hero/正式区域至少有：
+
+- 一级焦点：1 个，如维修铺/站牌/洗衣；
+- 二级支撑：2–4 组，如公共终端、售货机、设备架、雨棚；
+- 三级生活/维护细节：3–8 组，如箱子、编号、管线、排水、椅子。
+
+三级细节不能均匀撒点，要围绕功能摆放。
+
+### 27.3 before/after 证据
+
+artifacts/chapter1_3/scene_review：
+
+- baseline/：7 个 Balanced 锚点；
+- pass_backdrop/：受影响 3 个锚点；
+- pass_regions/：每区域主锚点；
+- final/：最终 14 张 street 两档。
+
+过程图不需要全部长期保留；最终 review 只提交能解释关键决策的代表图和最终图。
+
+### 27.4 视觉 review 顺序
+
+每轮不先看“赛博不赛博”，先检查：
+
+1. 比例/穿模/厚度；
+2. 主焦点；
+3. 前中远层次；
+4. 材质响应；
+5. 光照可读；
+6. 赛博技术层是否自然；
+7. 生活逻辑；
+8. 性能。
+
+如果基础层失败，不允许靠新增发光牌继续“丰富”。
+
+### 27.5 1.3 主场景完成标准
+
+除了工程 H0–H10 外，新增两个场景门槛：
+
+**H11 — 城市美术完整性**
+
+- 7 个 street 锚点全部 ≥15/18；
+- Hero 三机位目标 ≥16/18；
+- 主要街景不再出现“连续大面纯盒 + 只有窗格/招牌”的最终立面；
+- 至少 6 栋主视线建筑有明确不同的二级改造语言；
+- main street / repair / service court / station / roof 五个功能区一眼可区分；
+- 赛博技术元素能被识别，但强发光不淹没建筑；
+- 远景至少有 4 类轮廓语言；
+- Eco 仍然保留完整主题，不退化为无氛围版本。
+
+**H12 — 场景性能与可维护性**
+
+- 新增 detail 按 region 分组，不回到一个全图 giant props mesh；
+- 新增静态 detail 净增默认 ≤15k tris，超出必须有性能证据；
+- Balanced optional light/probe/particle 仍在原预算；
+- expanded_v11 正式性能通过；
+- 7 个锚点和自由摄影路线不出现明显 visibility pop；
+- build_m01 / build_authored 不因 1.3 美术继续复制大量相同 primitive；重复构件通过 m01_detail_lib 收敛；
+- 新材质/纹理都有真实画面用途，不保留未引用实验资产。
+
+---
+
+## 28. C13-18 — 最终证据格式
 
 ### 19.1 不再提交 verbose log 作为唯一证据
 
@@ -1483,7 +2257,7 @@ NEON_ARTIFACT_DIR
 
 ---
 
-## 20. 最终截图验收
+## 29. 最终截图验收
 
 当前两图 capture list 为空，回落所有锚点。
 
@@ -1530,7 +2304,7 @@ interior：
 
 ---
 
-## 21. 性能最终验收
+## 30. 性能最终验收
 
 ### 21.1 street
 
@@ -1594,7 +2368,7 @@ interior_v13：
 
 ---
 
-## 22. Windows Release / G6
+## 31. Windows Release / G6
 
 ### 22.1 构建
 
@@ -1649,7 +2423,7 @@ build/ 二进制继续不提交 Git。
 
 ---
 
-## 23. 文档同步
+## 32. 文档同步
 
 代码与真实验收全部完成后再更新结论，不提前写 PASS。
 
@@ -1675,7 +2449,7 @@ build/ 二进制继续不提交 Git。
 
 ---
 
-## 24. 实施工作包与严格顺序
+## 33. 实施工作包与严格顺序
 
 ### WP0 — 冻结基线，不改生产数据
 
@@ -1816,7 +2590,46 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 
 门槛：引用/依赖扫描为空、import/verify 全绿。
 
-### WP8 — 最终重建、视觉、性能、Release、人工巡走、文档
+### WP8 — 主场景结构与城市系统深化
+
+前置：WP0–WP7 全绿，先记录 art_baseline_v13。
+
+涉及：
+
+- 新增 tools/m01_detail_lib.gd；
+- PropsStreetEnrich 拆 South/Mid/North；
+- backdrop 四类 archetype；
+- 主街立面机电/通信/检修层；
+- repair / service court / station / roof 分区内容；
+- region_manifest 更新。
+
+门槛：
+
+- 拆分前后视觉不变；
+- 新区域 mesh 都有 detail range；
+- 主要构图没有新增穿模/遮挡；
+- BuildContract 能正确把新增资源纳入 bake hash。
+
+### WP9 — 主场景材质、灯光、招牌与构图终验
+
+涉及：
+
+- selective roughness/detail textures；
+- wet asphalt 非金属修正；
+- utility/sign atlas；
+- secondary signs；
+- baked lighting 重新平衡；
+- ≤2 Balanced particles；
+- 7 锚点微调与评分。
+
+门槛：
+
+- 7 锚点全部 ≥15/18；
+- Hero 三机位目标 ≥16/18；
+- H11/H12 通过；
+- street content_revision 若 WP3 已升 1.3.0，则本章内部后续美术不重复再升小版本；最终 1.3.0 代表本章完整街区内容。
+
+### WP10 — 最终重建、双图视觉、性能、Release、人工巡走、文档
 
 顺序不可交换：
 
@@ -1836,7 +2649,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 
 ---
 
-## 25. tests/test_chapter13_contract.gd
+## 34. tests/test_chapter13_contract.gd
 
 新增一套 1.3 专用合同测试，不把原测试塞成巨型文件。
 
@@ -1884,7 +2697,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 | T13-22 | measured snapshot 数据对象复制后不受后续 source Dictionary 变化影响 |
 | T13-23 | output path traversal/run_id 路径字符拒绝 |
 
-BenchmarkRunner.start_run 明确拒绝 headless，因此“真实 headroom 恢复、真实 measured Viewport 状态、settings.cfg 不被修改”不能伪装成 headless 单测。它们进入 WP8 的窗口化 integration smoke：
+BenchmarkRunner.start_run 明确拒绝 headless，因此“真实 headroom 恢复、真实 measured Viewport 状态、settings.cfg 不被修改”不能伪装成 headless 单测。它们进入 WP10 的窗口化 integration smoke：
 
 - Eco 用户状态 → Balanced headroom 5s → 退出后仍 Eco/30；
 - Balanced 用户状态 → Eco headroom 5s → 退出后仍 Balanced/60；
@@ -1893,11 +2706,11 @@ BenchmarkRunner.start_run 明确拒绝 headless，因此“真实 headroom 恢�
 
 为此 main 的开发自动化允许 --mode headroom 时接收 --duration 1..60；capped 仍固定 60，不开放缩短正式采样。
 
-EditorPlugin 真烘焙本身同样不能用 headless 单元测试替代；其覆盖集合与状态判定由 BuildContract helper 测试，真实 editor bake 由 WP8 图形门槛验证。
+EditorPlugin 真烘焙本身同样不能用 headless 单元测试替代；其覆盖集合与状态判定由 BuildContract helper 测试，真实 editor bake 由 WP10 图形门槛验证。
 
 ---
 
-## 26. 原有测试不得缩减
+## 35. 原有测试不得缩减
 
 必须继续跑：
 
@@ -1912,7 +2725,7 @@ EditorPlugin 真烘焙本身同样不能用 headless 单元测试替代；其覆
 
 ---
 
-## 27. 构建入口具体化
+## 36. 构建入口具体化
 
 build_chapter11.ps1 保持统一入口，并深化以下能力：
 
@@ -1999,7 +2812,7 @@ Stage=all 继续严格顺序；进入 export 时可复用本次 all 中刚完成
 
 ---
 
-## 28. 最终命令矩阵
+## 37. 最终命令矩阵
 
 以下命令是实施完成后的目标入口，实际 $G 路径按环境传入。
 
@@ -2037,7 +2850,7 @@ interior route + --occlusion on
 
 ---
 
-## 29. 最终验收门槛 H0–H10
+## 38. 最终验收门槛 H0–H12
 
 ### H0 — 仓库与构建输入
 
@@ -2151,7 +2964,7 @@ PASS：
 
 ---
 
-## 30. 文件级变更清单
+## 39. 文件级变更清单
 
 ### 新增
 
@@ -2169,6 +2982,9 @@ PASS：
 - tools/build_m01.gd
 - tools/build_authored.gd
 - tools/build_interior.gd
+- 新增 tools/m01_detail_lib.gd
+- tools/gen_textures.gd
+- tools/gen_signs.gd
 - tools/verify_build.gd
 - tools/build_chapter11.ps1
 - scripts/app/settings_manager.gd
@@ -2207,7 +3023,7 @@ PASS：
 
 ---
 
-## 31. 风险与回滚
+## 40. 风险与回滚
 
 ### R1 — manifest v2 首次强制重烘
 
@@ -2233,9 +3049,34 @@ PASS：
 
 先保证“不漏变化”，再通过负例/no-op 测试缩小非语义噪声。不能为了减少 bake 把真实材质/纹理依赖排除。
 
+### R7 — “赛博化”变成霓虹堆砌
+
+处理：
+
+- 每轮先看建筑/基础设施/生活逻辑；
+- 强发光只保留主焦点；
+- station 承担最高科技密度，service court/roof 保持生活气息；
+- Eco 关闭 glow 后仍必须成立。
+
+### R8 — 细节增加导致 region mesh 再次跨图巨大化
+
+处理：
+
+- PropsStreetEnrich 在正式加内容前先拆区；
+- 每个新增区域只合并本区内容；
+- 不为减少 node count 把不同街段重新拼成一个 mesh。
+
+### R9 — 远景升级抢主地标
+
+处理：
+
+- skyline 先只在 street/station/roof 三机位审；
+- 背景只服务轮廓层次；
+- 与余晖维修、霓湾站、signal tower 争焦点的背景体量优先删除/降亮。
+
 ---
 
-## 32. 完成状态定义
+## 41. 完成状态定义
 
 Chapter 1.3 只有同时满足以下条件才算完成：
 
@@ -2251,8 +3092,11 @@ Chapter 1.3 只有同时满足以下条件才算完成：
 10. capture anchors、portal target、bookmark revision 都有明确合同；
 11. timeout orphan、capture abort 等失败路径不会留下永久 busy；
 12. 旧烘焙脚本/旧 lightmap/死 mesh 在确认无引用后清理；
-13. 最终 22 PNG + 22 JSON、双图性能、进程采样、Windows Release、人工门户巡走都有证据；
-14. 文档与仓库当前事实一致；
-15. 没有为了本章新增未来功能空框架。
+13. m01_afterglow 已完成 §19–§27 的正式赛博都市场景深化，不只是工程修复；
+14. 7 个 street 锚点全部达到 1.3 成品评分门槛，Hero 三机位达到目标；
+15. 新增细节按区域分组且性能/HLOD 有效，没有回到 giant props mesh；
+16. 最终 22 PNG + 22 JSON、双图性能、进程采样、Windows Release、人工门户巡走都有证据；
+17. 文档与仓库当前事实一致；
+18. 没有为了本章新增未来功能空框架。
 
 完成本章后，项目才适合继续增加下一张地图或进入摄影工作台阶段。
