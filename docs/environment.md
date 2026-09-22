@@ -1,13 +1,12 @@
 # 环境记录
 
-> 更新：2026-09-19。本文件记录实际检查到的工具与硬件环境，未知项如实标注。
+> 更新：2026-09-22。本文件记录实际检查到的工具与硬件环境，未知项如实标注。
 
 ## 引擎
 
 - 可执行文件：`D:\Godot\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe`
-- `--version` 实测输出：`4.7.2.stable.official.ed1daf0bf`（2026-09-19）
-- Godot MCP 可用，报告同一版本。
-- 导出模板：`%APPDATA%\Godot\export_templates\` 目录存在但为空，**未安装 4.7.2 模板** → Windows 导出标记为待验证。
+- `--version` 实测输出：`4.7.2.stable.official.ed1daf0bf`（2026-09-19、2026-09-22 复测一致；Godot MCP 同版本）
+- 导出模板：`%APPDATA%\Godot\export_templates\4.7.2.stable\` 已安装（chapter1-1 曾产出 `build/windows/neon_haven.exe`）。chapter1-3 最终内容的重导出列入 WP10。
 
 ## 硬件
 
@@ -24,13 +23,13 @@
 
 ## 字体
 
-- 系统存在 `msyh.ttc`（微软雅黑）、`msjh.ttc`（正黑）、`simhei.ttf`（黑体）。
-- 制作阶段用系统字体栅格化招牌纹理；字体文件不进入发布包（许可限制，见 docs/asset_sources.md）。
+- 招牌/A 牌中文字形由**项目内 `assets/fonts/source/NotoSansSC-Regular.otf`（OFL 1.1，随仓库分发）** 在制作阶段栅格化为纹理；不再使用系统字体制作（旧记录已废止）。
+- 系统字体（微软雅黑/黑体）仅用于运行时 UI 文本（SystemFont 回退链），不参与资产制作。
 
 ## 运行工具链
 
 - Shell：Git Bash（win32）。Python/Blender：未安装、不作为运行依赖。
-- 网络可用（可下载资源，但导出模板约 1 GB，未获用户明确要求不自动下载）。
+- 网络可用（可下载资源；导出模板已安装，无需再下载）。
 
 ## 测量口径备注
 

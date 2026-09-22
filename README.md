@@ -59,10 +59,11 @@
 ## 已知限制
 
 - 招牌与 A 牌中文字形由项目内 **Noto Sans SC（OFL 1.1，随仓库分发）** 在制作阶段栅格化生成纹理；许可与哈希见 `docs/asset_sources.md`。
-- GPU 性能数据见 `artifacts/chapter1_2/perf_street.log` 与 `user://benchmarks/`；工作集等系统级指标标注 N/A（引擎内无法可靠采样，需外部工具）。
+- 性能数据以 `user://benchmarks/<run_id>/summary.json` 与 `summary.csv`（结构化证据）为准；工作集等系统级指标由 `tools/sample_process.ps1` 外部采样补充。
 - 无人值守会话运行 `--perf` 时窗口拿不到前台焦点会触发失焦中止（测量有效性设计）；本机用 `tools/focus_keep.ps1` 保持前台后采样有效。
 - chapter1-2 遗留：实机 F 键门户往返步行体感与摄影模式巡走清单为人工项（数据/合同层已自动验证，见 `docs/chapter1_2/review.md`）。
-- `build/windows/neon_haven.exe` 为 chapter1-1 内容的导出产物；包含 chapter1-2 双地图的重导出与独立目录实测列入 `docs/backlog.md`（G6）。
+- `build/windows/neon_haven.exe` 为 chapter1-1 内容的导出产物；chapter1-3 最终全管线重导出与独立目录实测列入 `docs/backlog.md`（WP10/G6）。
+- chapter1-3 工程信任链已落地（BuildContract/manifest v2/烘焙状态机/verify 只读/画质与 occlusion 唯一权威/benchmark 测量快照，见 `docs/chapter1_3/review.md`）；§19–§27 主场景美术深化（WP8/WP9）尚未开始。
 
 ## 目录速览
 

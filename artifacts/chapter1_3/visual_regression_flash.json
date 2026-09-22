@@ -1,0 +1,185 @@
+{
+  "utc": "2026-09-22T16:25",
+  "build_id": "3a08948-local",
+  "verifier": "GLM-5.3-Flash$max（独立模型，中性描述遍+rubric 评分遍）",
+  "purpose": "chapter1-3 工程重建（authored 去重/重烘/manifest v2/运行时修复）后的视觉回归验收；1.3 美术门槛（H11）不适用（WP8/9 未开始）",
+  "result": "22/22 PASS，0 硬失败，平均 13.2/18",
+  "images": [
+    {
+      "anchor": "roof_terrace_view",
+      "profile": "balanced",
+      "total": 16,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_roof_terrace_view_balanced.png"
+    },
+    {
+      "anchor": "entry_view",
+      "profile": "eco",
+      "total": 13,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_entry_view_eco.png"
+    },
+    {
+      "anchor": "service_court_view",
+      "profile": "eco",
+      "total": 16,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_service_court_view_eco.png"
+    },
+    {
+      "anchor": "repair_shop_view",
+      "profile": "balanced",
+      "total": 11,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_repair_shop_view_balanced.png"
+    },
+    {
+      "anchor": "repair_shop_door",
+      "profile": "balanced",
+      "total": 10,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_repair_shop_door_balanced.png"
+    },
+    {
+      "anchor": "workbench_view",
+      "profile": "eco",
+      "total": 11,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_workbench_view_eco.png"
+    },
+    {
+      "anchor": "workbench_view",
+      "profile": "balanced",
+      "total": 14,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_workbench_view_balanced.png"
+    },
+    {
+      "anchor": "street_view",
+      "profile": "balanced",
+      "total": 17,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_street_view_balanced.png"
+    },
+    {
+      "anchor": "station_forecourt_view",
+      "profile": "eco",
+      "total": 12,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_station_forecourt_view_eco.png"
+    },
+    {
+      "anchor": "dining_view",
+      "profile": "eco",
+      "total": 17,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_dining_view_eco.png"
+    },
+    {
+      "anchor": "street_view",
+      "profile": "eco",
+      "total": 16,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_street_view_eco.png"
+    },
+    {
+      "anchor": "gallery_view",
+      "profile": "eco",
+      "total": 12,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_gallery_view_eco.png"
+    },
+    {
+      "anchor": "service_court_view",
+      "profile": "balanced",
+      "total": 16,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_service_court_view_balanced.png"
+    },
+    {
+      "anchor": "roof_terrace_view",
+      "profile": "eco",
+      "total": 14,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_roof_terrace_view_eco.png"
+    },
+    {
+      "anchor": "repair_shop_view",
+      "profile": "eco",
+      "total": 10,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_repair_shop_view_eco.png"
+    },
+    {
+      "anchor": "repair_shop_door",
+      "profile": "eco",
+      "total": 7,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_repair_shop_door_eco.png"
+    },
+    {
+      "anchor": "dining_view",
+      "profile": "balanced",
+      "total": 13,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_dining_view_balanced.png"
+    },
+    {
+      "anchor": "station_forecourt_view",
+      "profile": "balanced",
+      "total": 10,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_station_forecourt_view_balanced.png"
+    },
+    {
+      "anchor": "gallery_view",
+      "profile": "balanced",
+      "total": 17,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_gallery_view_balanced.png"
+    },
+    {
+      "anchor": "station_view",
+      "profile": "balanced",
+      "total": 15,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_station_view_balanced.png"
+    },
+    {
+      "anchor": "station_view",
+      "profile": "eco",
+      "total": 11,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_afterglow_station_view_eco.png"
+    },
+    {
+      "anchor": "entry_view",
+      "profile": "balanced",
+      "total": 13,
+      "pass": true,
+      "hard_fails": 0,
+      "file": "screenshots/final/m01_repair_interior_entry_view_balanced.png"
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "anchor_id": "service_court_view",
+  "build_id": "3a08948-local",
+  "camera_pose": {
+    "anchor_id": "service_court_view",
+    "far_m": 700.0,
+    "fov_deg": 60.0,
+    "keep_aspect": 1,
+    "map_id": "m01_afterglow",
+    "near_m": 0.300000011920929,
+    "position": [
+      -45.5,
+      1.79999995231628,
+      -3.0
+    ],
+    "quaternion": [
+      0.00866493210196495,
+      0.633949100971222,
+      -0.00710354605689645,
+      0.773293614387512
+    ]
+  },
+  "content_revision": "1.2.0",
+  "effective_state": {
+    "aa_mode": "fxaa",
+    "focused": true,
+    "frame_cap": 30,
+    "glow_enabled": false,
+    "minimized": false,
+    "occlusion_enabled": true,
+    "particle_emitter_count": 2,
+    "probe_count": 0,
+    "profile_id": "eco",
+    "render_scale": 0.800000011920929,
+    "renderer": "mobile",
+    "runtime_fill_count": 0
+  },
+  "engine_version": "4.7.2-stable (official)",
+  "gpu_adapter": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+  "image_height": 1080,
+  "image_width": 1920,
+  "label": "eco_service_court_view",
+  "map_id": "m01_afterglow",
+  "profile_id": "eco",
+  "render_stats": {
+    "draw_calls": 7,
+    "fps": 15.0,
+    "primitives": 66750,
+    "video_mem_mb": 242.0
+  },
+  "request_id": 6,
+  "schema_version": 1,
+  "utc_time": "2026-09-22T15:29:29"
+}

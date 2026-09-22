@@ -25,7 +25,7 @@
 ## 几何与材质
 
 - 全部建筑/街道/道具几何由 `tools/build_m01.gd` + `tools/gen_lib.gd` 程序化生成（含 lightmap UV2 自打包），材质为 Godot StandardMaterial3D，保存于 `assets/m01_afterglow/materials/`。
-- 烘焙数据 `maps/m01_afterglow/map_lightmap.res/.exr` 由 LightmapGI 生成（制作阶段）。
+- 烘焙数据 `maps/<map_id>/baked/map_lightmap.res/.exr` 由 LightmapGI 生成（制作阶段；chapter1-3 起统一走 baked/ 目录，旧根级 map_lightmap 已删除）。
 
 ## 引擎与工具
 
