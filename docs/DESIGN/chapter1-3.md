@@ -289,8 +289,9 @@ manifest v2 的权威字段：
 | content_revision | 内容修订 |
 | engine_version | 实际 Godot |
 | build_id | 本次构建关联键 |
+| bake_source_roots | 本地图制作层的输入根路径；street=generated+authored，interior=generated |
 | bake_input_hash | 唯一的“是否可复用旧 bake”输入签名 |
-| bake_input_files | 排序后的输入文件与各自 sha256，便于审计 |
+| bake_input_files | 从 source roots 递归得到的排序输入文件与各自 sha256，便于审计 |
 | bake_settings | 实际 LightmapGI 烘焙设置快照 |
 | bake_job_id | 当前/最近一次 bake |
 | bake_status | pending / stale / running / succeeded / failed |
@@ -383,17 +384,20 @@ assemble 不再无条件覆盖 baked data。
 
 1. 构建最终 MapRoot，但暂不破坏现有 baked 文件。
 2. 从当前 root 计算 expected_baked_user_paths。
-3. 计算 manifest v2 bake_input_hash。
+3. 由本地图声明的 bake_source_roots 计算 manifest v2 bake_input_hash / input files / settings/environment snapshot。
 4. 读取上一 manifest + 已有 baked/map_lightmap.res；baked data 必须通过 BuildContract.load_resource_fresh 读取。
 5. 判断 can_reuse_bake。
-6. 若可复用，把 fresh-load 后验证通过的已有 LightmapGIData 绑定到当前 LightmapGI。
-7. 若不可复用，才创建空 LightmapGIData，并把 manifest 置 stale/pending。
-8. pack/save map.tscn。
-9. 写 manifest v2。
+6. 若可复用，把 fresh-load 后验证通过的已有 LightmapGIData 绑定到当前 LightmapGI；此分支没有破坏性 baked 写入。
+7. 若不可复用，**先用 write_json_recoverable 把磁盘 manifest 写成 pending/stale，写入当前 source roots/hash/expected，并清 actual/missing/job id**。这一步失败立即 quit(1)，尚未触碰旧 baked data。
+8. 只有预失效 manifest 成功后，才创建并保存空 LightmapGIData，再用 fresh-load 绑定；保存/读取失败立即 quit(1)，manifest 已是非 succeeded。
+9. pack/save map.tscn，检查 Error。
+10. save MapDefinition，检查 Error。
+11. 最后再次写 manifest：reuse 分支写 succeeded+真实 actual；invalidated 分支保持 pending/stale。任何写失败非零退出。
 
 can_reuse_bake 必须同时满足：
 
 - 前一 manifest schema_version=2；
+- prev.bake_source_roots 与当前 roots 排序后相同；
 - 前一 bake_status=succeeded；
 - prev.bake_input_hash == current.bake_input_hash；
 - prev.expected_baked_user_paths == current expected（排序后相等）；
@@ -583,8 +587,10 @@ verify_build 必须：
 
 - 从 registry 枚举所有生产地图；
 - 读取 MapDefinition；
+- manifest 路径由 def.scene_path.get_base_dir().path_join("build_manifest.json") 推导，不按 map_id 硬编码目录；
 - 读取 manifest v2；
-- 重新算当前 bake_input_hash；
+- 校验 bake_source_roots 非空、均存在且位于 res://；
+- 根据 manifest.bake_source_roots 重新递归收集依赖并计算当前 bake_input_hash；
 - 重新算 current expected；
 - 从真实 LightmapGIData 读 actual；
 - 校验 status succeeded；
@@ -1308,6 +1314,8 @@ interior → street / repair_shop_door
 
 当前 verify 有硬编码 MAP_CONFIGS，registry 新增未配置 map 时可能不进入验证。
 
+manifest v2 的 bake_source_roots 是制作期元数据，正是为了解决“通用 verify 不知道每张地图的 generated/authored 输入层在哪里”这一问题；verify 不再内置 street/interior 的源文件数组。
+
 1.3 后：
 
 - 主枚举权威是 data/map_registry.json；
@@ -1826,7 +1834,8 @@ build/ 二进制继续不提交 Git。
 | T13-04 | expected⊆actual 时覆盖通过，actual 超集允许 |
 | T13-05 | expected 有 missing 时失败 |
 | T13-06 | manifest v1 不能复用 succeeded |
-| T13-07 | manifest v2 只有 hash+expected+真实 data 全一致才能 reuse |
+| T13-07 | manifest v2 只有 source roots+hash+expected+真实 data 全一致才能 reuse |
+| T13-07b | assemble 不可复用分支必须先持久化 pending/stale，再允许覆盖 baked data |
 
 ### 25.2 地图数据
 
