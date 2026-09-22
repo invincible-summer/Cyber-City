@@ -63,6 +63,7 @@ P0 必须先修，否则后续截图/性能/导出证据都不可信：
 - C13-05：authored 站前几何和 exclusions 重复生成。
 - C13-06：Eco/Balanced 运行时只部分生效；occlusion 权威失真。
 - C13-07：Benchmark 输出读取恢复后的环境，且 headroom/FPS 恢复顺序有误。
+- C13-21：制作脚本的 required output 写失败没有统一 Error 传播，部分路径仍会 quit(0)。
 
 P1 修复运行可靠性与用户可见合同：
 
@@ -187,10 +188,12 @@ extends RefCounted
 不负责：
 
 - 生成场景；
-- 写 manifest；
+- 决定 manifest 状态机；
 - 启动 bake；
-- 修改地图；
+- 修改地图场景；
 - 运行测试。
+
+它可以提供“读取 JSON / 可恢复替换 JSON”的底层文件函数，目的是让 assemble、bake、verify 不再各自复制一套容易分叉的 manifest I/O；状态转换仍由调用方决定。
 
 建议公开接口：
 
@@ -206,6 +209,8 @@ extends RefCounted
 | actual_bake_users(lm: LightmapGI) -> Array[String] | 从 LightmapGIData 读取 user paths |
 | missing_paths(expected, actual) -> Array[String] | expected - actual |
 | exact_duplicate_aabbs(boxes) -> Array | 只查完全相同 AABB，不把有意重叠判错 |
+| load_json_dict(path: String) -> Dictionary | 只读 JSON，非法返回空并由调用方决定失败语义 |
+| write_json_recoverable(path: String, data: Dictionary) -> Error | 临时文件写入+回读校验+旧文件备份+替换+失败恢复，统一 manifest 写盘语义 |
 
 Godot 官方 ResourceLoader.get_dependencies 会返回资源直接依赖，并明确 dependency 可能为单一路径，也可能是 UID::空::fallback 三段形式；实现必须按该合同解析，而不能把原字符串直接当文件路径。官方 4.x/4.7 文档作为实施参考：
 https://docs.godotengine.org/en/4.7/
@@ -302,6 +307,38 @@ manifest v2 的权威字段：
 - authored_input_hash
 
 这些旧字段曾用于诊断，但已经无法作为完整 stale 判断；保留它们会形成第二套权威。若确有历史分析需要，从旧 commit 读取，不在 v2 继续维护。
+
+### 2.5.1 Manifest 状态转换
+
+唯一允许的主要转换：
+
+| 触发 | 新状态 |
+| --- | --- |
+| 首次 assemble，无旧 manifest | pending |
+| assemble 发现输入/expected/真实 baked data 任一不匹配 | stale |
+| assemble 证明 hash/expected/真实 baked data 全部一致 | succeeded（安全复用） |
+| bake 在覆盖旧 baked data 之前 | running |
+| bake 数据/coverage/scene save 失败 | failed |
+| bake 数据有效且 coverage 完整、scene save 成功 | succeeded |
+
+succeeded 的含义只表示“当前地图的烘焙数据有效且完整”，不表示附加证据文件一定写成功。bake report 写失败仍让本次命令非零退出，但不应反向伪称已经验证有效的 LightmapGIData 无效；最终发布门槛会要求 report/verification summary 补齐。
+
+### 2.5.2 Manifest 可恢复替换
+
+这里不宣称操作系统级原子覆盖。
+
+write_json_recoverable 的最低流程：
+
+1. 写 path.tmp；
+2. flush/close；
+3. 重新解析 tmp，确认 JSON 与 schema 可读；
+4. 若旧目标存在，先复制到 path.prev；
+5. 删除旧目标；
+6. rename tmp → target；
+7. rename 失败则尝试 prev 恢复；
+8. 成功后删除 prev；恢复也失败时保留 tmp/prev 并返回错误，供人工取证。
+
+所有调用方必须检查 Error。不能“print 一行失败后继续”。
 
 ### 2.6 v1 → v2 迁移规则
 
@@ -406,7 +443,7 @@ neon_bake 在真正 bake 前会预保存空 LightmapGIData，但当前只修改�
 2. 完成 precheck。
 3. 计算/读取当前 expected。
 4. 读取 manifest v2，并确认其 bake_input_hash 与当前 scene 输入一致；不一致直接失败，要求重新 assemble。
-5. **先原子写 manifest：bake_status=running、job_id、本轮 expected、actual=[]、missing=[]。**
+5. **先可恢复替换 manifest：bake_status=running、job_id、本轮 expected、actual=[]、missing=[]。**
 6. manifest 写成功后，才允许覆盖 baked/map_lightmap.res 为新空数据。
 7. 空数据保存成功后，用 CACHE_MODE_REPLACE_DEEP/fresh-load 重新绑定 LightmapGI，确认 user_count=0；不能让 ResourceLoader cache 中的旧数据继续挂在节点上。
 8. 触发编辑器 Bake Lightmaps。
@@ -415,7 +452,7 @@ neon_bake 在真正 bake 前会预保存空 LightmapGIData，但当前只修改�
 11. missing 为空才继续。
 12. EditorInterface.save_scene()，检查返回 Error。
 13. 再次从磁盘/scene fresh-load 必要状态做终检。
-14. 原子写 manifest succeeded + expected/actual/missing=[] + finished time。
+14. 可恢复替换 manifest succeeded + expected/actual/missing=[] + finished time。
 15. 写 report success=true。
 16. 输出 NEON_BAKE_EXIT=0。
 
@@ -562,6 +599,59 @@ verify_build 必须：
 verify 失败只输出错误并非零退出，绝不“顺手修”。
 
 ---
+
+## 6.5 C13-21 — 制作 required output 必须传播失败
+
+### 6.5.1 当前事实
+
+当前多处写盘错误只 push_error/print 后继续：
+
+- build_m01 保存 generated scene/spec/material/fixture；
+- build_authored 保存 authored scene/spec/region manifest；
+- build_interior 保存 generated scene/spec；
+- assemble_m01 / assemble_interior 保存 map scene、definition、manifest；
+- GenLib.MeshBuilder.commit 保存外部 mesh 时只 push_error。
+
+最危险的情况不是“文件不存在”，而是旧文件还在：新保存失败后流程继续，后续 assemble/verify 可能读到上一次成功产物。
+
+### 6.5.2 修复范围
+
+本章不把所有工具重写成事务系统，但所有**生产必需输出**必须可观察失败并让当前 Godot 进程 quit(1)。
+
+GenLib.MeshBuilder 保持 commit 的现有返回形态，增加只读 last_save_error/get_last_save_error；每次 commit 开始先清 OK，path 非空且 ResourceSaver.save 失败时记录错误。
+
+build_m01/build_authored/build_interior 对每个需要落盘的 mesh、scene、spec、material/region manifest 逐项检查；任一 required output 失败立即停止本阶段。
+
+assemble 的三个关键写入必须返回 Error：
+
+- save map scene；
+- save MapDefinition；
+- write manifest。
+
+只有三者全 OK 才输出 ASSEMBLE_DONE。
+
+fixture/诊断输出如果明确不属于生产门槛，可以标 optional；但不能让 optional 与 production required 混在同一个无返回值 helper 里。
+
+### 6.5.3 输出后校验
+
+Stage=generate/assemble 结束前至少确认：
+
+- 本轮预期文件存在；
+- 必要 JSON 可重新解析；
+- 必要 Resource 可 fresh-load；
+- 不是仅凭“旧路径存在”判成功。
+
+### 6.5.4 验收
+
+用 user:// 临时路径/专用 fixture 模拟写失败或非法 JSON，不修改 tracked production 文件。
+
+至少证明：
+
+- required scene save Error → exit1；
+- required spec open null → exit1；
+- manifest replace Error → exit1；
+- MeshBuilder required mesh save error 能被上层观察；
+- 成功路径仍输出原有 DONE marker。
 
 ## 7. C13-05 — 清掉 authored 重复生成
 
@@ -1242,19 +1332,20 @@ _run_capture 下一次 await 回来发现 request invalid，会 cleanup 后 retu
 
 ### 17.2 修复
 
-把请求收尾集中到一个幂等 finish helper：
+把请求上下文从 _run_capture 的局部变量收敛到当前请求字段（active token、saved UI state、request id、cancel reason），再集中到一个幂等 finish helper：
 
 - 恢复 UI；
 - 恢复 camera input；
 - 释放 guard token；
 - _busy=false；
 - _request_id=0；
+- 清 active token/context；
 - 成功时 emit completed；
 - 失败/取消时 emit failed 一次。
 
-abort 保存 cancel reason，下一继续点走统一 ERR_CANCELED 失败收尾。
+abort_capture 不只把 request id 置零，而是立即标记取消并调用统一 finish；已经挂起在 frame_post_draw 的旧 continuation 以后恢复时会看到 request id 已失效，只能 return，不能再次 cleanup/emit。
 
-不要在多个 return 分支分别手工清 busy/token。
+这样取消不依赖“下一帧一定会到来”，也能在 headless/退出边界可靠释放 ActivityGuard。
 
 ### 17.3 验收
 
@@ -1764,13 +1855,20 @@ build/ 二进制继续不提交 Git。
 
 | ID | 测试 |
 | --- | --- |
-| T13-21 | route-map mismatch 拒绝 |
-| T13-22 | measured_environment 在 restore 前冻结 |
-| T13-23 | headroom 恢复后 Eco 仍为 30、Balanced 仍为 60 |
-| T13-24 | output path traversal/run_id 路径字符拒绝 |
-| T13-25 | benchmark 前后 settings.cfg 内容 hash 不变 |
+| T13-21 | PerfRoutes route metadata 与 map_id 匹配/不匹配的纯合同 |
+| T13-22 | measured snapshot 数据对象复制后不受后续 source Dictionary 变化影响 |
+| T13-23 | output path traversal/run_id 路径字符拒绝 |
 
-EditorPlugin 真烘焙本身不能用 headless 单元测试替代；其覆盖集合与状态判定必须由 BuildContract 纯函数测试，真实 editor bake 由 WP8 图形门槛验证。
+BenchmarkRunner.start_run 明确拒绝 headless，因此“真实 headroom 恢复、真实 measured Viewport 状态、settings.cfg 不被修改”不能伪装成 headless 单测。它们进入 WP8 的窗口化 integration smoke：
+
+- Eco 用户状态 → Balanced headroom 5s → 退出后仍 Eco/30；
+- Balanced 用户状态 → Eco headroom 5s → 退出后仍 Balanced/60；
+- 每轮前后 settings.cfg SHA256 相同；
+- run.json 中 measured_environment 是测量档，而不是恢复档。
+
+为此 main 的开发自动化允许 --mode headroom 时接收 --duration 1..60；capped 仍固定 60，不开放缩短正式采样。
+
+EditorPlugin 真烘焙本身同样不能用 headless 单元测试替代；其覆盖集合与状态判定由 BuildContract helper 测试，真实 editor bake 由 WP8 图形门槛验证。
 
 ---
 
@@ -1820,6 +1918,8 @@ build_chapter11.ps1 保持统一入口，并深化以下能力：
 - MapId 与 registry 一致。
 
 ### generate
+
+所有调用的 required output Error 必须向 PowerShell 的非零 exit 传播；DONE marker 只是附加证明，不能替代 exit code。
 
 MapId=both 的顺序必须改为“共享输入先稳定、street 先、interior 后”。当前脚本先 build interior、后 build_m01，而 build_interior 会加载 assets/m01_afterglow/materials，build_m01 又会重建这些共享材质；这个顺序会让一次完整构建依赖上一次提交中已有材质状态。
 
@@ -2039,7 +2139,10 @@ PASS：
 - addons/neon_bake/bake_plugin.gd
 - tools/assemble_m01.gd
 - tools/assemble_interior.gd
+- tools/gen_lib.gd
+- tools/build_m01.gd
 - tools/build_authored.gd
+- tools/build_interior.gd
 - tools/verify_build.gd
 - tools/build_chapter11.ps1
 - scripts/app/settings_manager.gd
