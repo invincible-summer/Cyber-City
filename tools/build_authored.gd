@@ -28,6 +28,7 @@ const KEYS := {
 	"wood": "wood", "lamp": "metal_teal", "lens": "lamp_lens", "roof": "roof",
 }
 const FACE_NB := 55  # GL.FACE_NO_BOTTOM：盒体无底面
+const BC := preload("res://tools/build_contract.gd")
 
 
 func _init() -> void:
@@ -41,7 +42,6 @@ func _run() -> void:
 
 	var root := Node3D.new()
 	root.name = "M01Authored"
-
 	# 固定机位（新三处）：位置由实际布局确定（chapter1-1 §3.2）
 	# service_court_view：立于巷口拱门内（z -3 在拱门通道 z -6…6 内），望向洗衣店门面；
 	#   原姿态 (-43,2,0.8) 的视线穿过北翼附楼实体（x -67…-45, z 0…16），画面被堵死。
@@ -71,7 +71,11 @@ func _run() -> void:
 	_station_forecourt_static_common(mb_static)
 	_roof_terrace_static(mb_static)
 	var mesh_static := mb_static.commit(mats, "%s/authored_static_mesh.res" % AUTHORED_MESH_DIR, Vector2i(2048, 2048))
-	print("authored static: tris=", mb_static.tri_count(), " surf=", mesh_static.get_surface_count(), " uv2_max_y=%.3f overflow=%d" % [mb_static.packer.max_y(), mb_static.packer.overflow_count])
+	if mb_static.get_last_save_error() != OK:
+		quit(1)
+		return
+	var stats_static_tris := mb_static.tri_count()
+	print("authored static: tris=", stats_static_tris, " surf=", mesh_static.get_surface_count(), " uv2_max_y=%.3f overflow=%d" % [mb_static.packer.max_y(), mb_static.packer.overflow_count])
 	var mi_static := MeshInstance3D.new()
 	mi_static.name = "AuthoredStaticMesh"
 	mi_static.mesh = mesh_static
@@ -89,12 +93,17 @@ func _run() -> void:
 		{"name": "PropsStreetEnrich", "build": _street_enrich_props},
 	]
 	var total_prop_tris := 0
+	var stats_region_tris := {}
 	for region in prop_regions:
 		var mb_props := GL.MeshBuilder.new()
 		region["build"].call(mb_props)
 		if mb_props.tri_count() == 0:
 			continue
 		var mesh_props := mb_props.commit(mats, "%s/authored_%s.res" % [AUTHORED_MESH_DIR, region["name"]], Vector2i(512, 512))
+		if mb_props.get_last_save_error() != OK:
+			quit(1)
+			return
+		stats_region_tris[str(region["name"])] = mb_props.tri_count()
 		total_prop_tris += mb_props.tri_count()
 		var mi_props := MeshInstance3D.new()
 		mi_props.name = str(region["name"])
@@ -133,6 +142,9 @@ func _run() -> void:
 		[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Vector2())
 	mb_door.box("metal_teal", Vector3(-0.1, 0.95, 0.83), Vector3(-0.045, 1.01, 0.91), 0.7, 16.0)
 	var door_mesh := mb_door.commit(mats, "%s/authored_door_leaf.res" % AUTHORED_MESH_DIR, Vector2i(256, 256))
+	if mb_door.get_last_save_error() != OK:
+		quit(1)
+		return
 	var doors := Node3D.new()
 	doors.name = "AuthoredPortalDoors"
 	var pivot := Node3D.new()
@@ -158,10 +170,21 @@ func _run() -> void:
 	mb_frame.box("lit_warm", Vector3(32.76, 2.22, 32.8), Vector3(32.8, 2.32, 33.88), 0.8, 16.0)
 	lights_spec.append(_omni(Vector3(32.4, 2.5, 33.35), Color(1, 0.76, 0.5), 1.3, 5.5))
 	var frame_mesh := mb_frame.commit(mats, "%s/authored_door_frame.res" % AUTHORED_MESH_DIR, Vector2i(256, 256))
+	if mb_frame.get_last_save_error() != OK:
+		quit(1)
+		return
 	var mi_frame := MeshInstance3D.new()
 	mi_frame.name = "DoorFrame"
 	mi_frame.mesh = frame_mesh
 	doors.add_child(mi_frame)
+
+	# C13-05 硬门槛：exclusion 精确重复必须在生成器内 fail，不得静默 dedupe 或留给 assemble
+	var dup := BC.exact_duplicate_aabbs(exclusions)
+	if not dup.is_empty():
+		for d in dup:
+			push_error("authored exclusion 精确重复: #%d 与 #%d 重复 %s" % [int(d["index"]), int(d["duplicate_of"]), str(exclusions[int(d["index"])])])
+		quit(1)
+		return
 
 	_set_all_owners(root, root)
 	var ps := PackedScene.new()
@@ -171,8 +194,14 @@ func _run() -> void:
 		quit(1)
 		return
 	err = ResourceSaver.save(ps, AUTHORED_SCENE)
+	if err != OK:
+		push_error("authored 场景保存失败: %d（旧产物可能仍在，禁止冒充本轮成功）" % err)
+		quit(1)
+		return
 	print("authored scene saved: ", err)
-	_save_spec()
+	if _save_spec(stats_static_tris, stats_region_tris, total_prop_tris) != OK:
+		quit(1)
+		return
 	print("AUTHORED_DONE")
 	quit(0)
 
@@ -215,11 +244,13 @@ func _service_court_static(mb: GL.MeshBuilder) -> void:
 	lights_spec.append(_omni(Vector3(-55.0, 3.2, 12.5), Color(1, 0.76, 0.5), 1.4, 7.0))
 
 	# 北翼附楼（露台承重体，两层 h8.6；x -67…-45, z 0…16）
+	# C13-05：register_exclusion=false——自动盒（h+0.5=9.1）与手工特殊高度盒（8.55）
+	# 同 x/z 双权威；只保留手工盒（顶部到露台楼板下）。
 	_authored_building(mb, {
 		"id": "SC_ANNEX", "x0": -67, "z0": 0, "x1": -45, "z1": 16, "h": 8.6,
 		"wall": "wall_brick", "pattern": "grid", "floor_h": 4.0, "bay": 3.4,
 		"win_w": 1.4, "win_h": 1.7, "front": "-z", "seed": 2102, "base_h": 0.45,
-	})
+	}, false)
 	# 南翼低层（储物/后屋，x -65…-45, z -17…-11, h5.5）
 	_authored_building(mb, {
 		"id": "SC_S", "x0": -65, "z0": -17, "x1": -45, "z1": -11, "h": 5.5,
@@ -232,16 +263,15 @@ func _service_court_static(mb: GL.MeshBuilder) -> void:
 	# 拱门梁（跨巷口 z -6…6）
 	mb.box("concrete_plain", Vector3(-45.5, 2.6, -6.4), Vector3(-44.8, 3.6, 6.4), 0.5, 20.0)
 	mb.box("metal_dark", Vector3(-45.6, 3.6, -6.4), Vector3(-44.7, 3.8, 6.4), 0.7, 18.0)
-	exclusions.append(AABB(Vector3(-73.3, 0, -14.3), Vector3(8.6, 8.0, 28.6)))
+	# C13-05：SC_W/SC_S 用 _authored_building 自动 exclusion（不再手工重复）；
+	# SC_ANNEX register_exclusion=false，只保留下方手工特殊高度 exclusion（单一权威）。
 	exclusions.append(AABB(Vector3(-67.3, 0, -0.3), Vector3(22.6, 8.55, 16.6)))   # 附楼分层：顶到露台楼板下
-	exclusions.append(AABB(Vector3(-65.3, 0, -17.3), Vector3(20.6, 6.0, 6.6)))
 	# 巷口拱门：两侧墙 + 顶部过梁（通道 y2.6 以下可通行）
 	exclusions.append(AABB(Vector3(-45.9, 0, -17.3), Vector3(1.3, 4.0, 10.9)))
 	exclusions.append(AABB(Vector3(-45.9, 0, 6.4), Vector3(1.3, 4.0, 10.6)))
 	exclusions.append(AABB(Vector3(-45.9, 2.6, -6.4), Vector3(1.3, 1.2, 12.8)))
-
-	# ---- 站前空间：高架支柱补齐 + 北梯 + 天桥 + 雨棚框架（z -88…-62, x 10…43）----
-	_station_forecourt_static_common(mb)
+	# 站前静态几何只由 _run 顶层调用一次（C13-05：此前 _service_court_static 末尾
+	# 重复调用导致 station forecourt 几何与 6 组 exclusion 双份写入 authored_static_mesh）
 
 
 func _station_forecourt_static_common(mb: GL.MeshBuilder) -> void:
@@ -755,8 +785,9 @@ func _flat_quad(mb: GL.MeshBuilder, key: String, center: Vector3, w: float, h: f
 	mb.quad(key, center + Vector3(-w / 2, 0, h / 2), center + Vector3(w / 2, 0, h / 2), center + Vector3(w / 2, 0, -h / 2), center + Vector3(-w / 2, 0, -h / 2), Vector3.UP, [Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)], uv2sz)
 
 
-func _authored_building(mb: GL.MeshBuilder, spec: Dictionary) -> void:
+func _authored_building(mb: GL.MeshBuilder, spec: Dictionary, register_exclusion: bool = true) -> void:
 	## 精修层简化建筑：主体 + 基座 + 窗（临街面）+ 屋顶套件。
+	## register_exclusion=false 时由调用方自行注册特殊 exclusion（C13-05 单一权威）。
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(spec.get("seed", 1))
 	var x0: float = spec["x0"]; var x1: float = spec["x1"]
@@ -768,7 +799,8 @@ func _authored_building(mb: GL.MeshBuilder, spec: Dictionary) -> void:
 	GL.roof_kit(mb, x0, z0, x1, z1, h, rng, {"parapet": "concrete_plain", "roof": "roof", "metal": "metal_dark"}, false)
 	# 临街面窗
 	_face_windows(mb, spec, str(spec["front"]), rng)
-	exclusions.append(AABB(Vector3(x0 - 0.3, 0, z0 - 0.3), Vector3(x1 - x0 + 0.6, h + 0.5, z1 - z0 + 0.6)))
+	if register_exclusion:
+		exclusions.append(AABB(Vector3(x0 - 0.3, 0, z0 - 0.3), Vector3(x1 - x0 + 0.6, h + 0.5, z1 - z0 + 0.6)))
 
 
 func _face_windows(mb: GL.MeshBuilder, spec: Dictionary, face: String, rng: RandomNumberGenerator) -> void:
@@ -872,12 +904,13 @@ func _quad_face(mb: GL.MeshBuilder, key: String, axis: String, c: float, a0: flo
 
 # ============================ 规格输出 ============================
 
-func _save_spec() -> void:
+func _save_spec(stats_static_tris: int, stats_region_tris: Dictionary, stats_props_total: int) -> Error:
 	var excl: Array = []
 	for b in exclusions:
 		excl.append([b.position.x, b.position.y, b.position.z, b.size.x, b.size.y, b.size.z])
 	region_manifest_path = "res://maps/m01_afterglow/source/region_manifest.json"
-	_write_region_manifest()
+	if _write_region_manifest() != OK:
+		return ERR_CANT_OPEN
 	var spec := {
 		"schema_version": 1,
 		"authored_scene": AUTHORED_SCENE,
@@ -888,17 +921,24 @@ func _save_spec() -> void:
 		"portals": portals,
 		"region_manifest_path": region_manifest_path,
 		"total_exclusions": excl.size(),
+		## build_stats（§26.1）：region_prop_tris 的 key 与实际 region mesh 集合一致。
+		"build_stats": {
+			"authored_static_tris": stats_static_tris,
+			"region_prop_tris": stats_region_tris,
+			"authored_props_total_tris": stats_props_total,
+		},
 	}
 	var f := FileAccess.open(AUTHORED_SPEC, FileAccess.WRITE)
 	if f == null:
 		push_error("authored spec 写入失败")
-		return
+		return ERR_CANT_OPEN
 	f.store_string(JSON.stringify(spec, "  "))
 	f.close()
 	print("authored spec saved: anchors=", anchors.size(), " exclusions=", excl.size())
+	return OK
 
 
-func _write_region_manifest() -> void:
+func _write_region_manifest() -> Error:
 	## 区域细节配置（chapter1-1 §6.3）：只约束被标记的小装饰网格，不控制建筑/地面/主要家具。
 	DirAccess.make_dir_recursive_absolute("res://maps/m01_afterglow/source")
 	var manifest := {
@@ -935,9 +975,12 @@ func _write_region_manifest() -> void:
 		],
 	}
 	var f := FileAccess.open(region_manifest_path, FileAccess.WRITE)
-	if f != null:
-		f.store_string(JSON.stringify(manifest, "  "))
-		f.close()
+	if f == null:
+		push_error("region manifest 写入失败: %s" % region_manifest_path)
+		return ERR_CANT_OPEN
+	f.store_string(JSON.stringify(manifest, "  "))
+	f.close()
+	return OK
 
 
 # ============================ 辅助 ============================

@@ -1,0 +1,48 @@
+{
+  "recorded_at": "2026-09-22T14:31:03.158Z",
+  "commit": "07f135b1606f2b78d39fe52f67cdb6d78a09517f",
+  "street_manifest_v1": {
+    "bake_status": "succeeded",
+    "actual_users": 10,
+    "expected_users": 0,
+    "content_revision": "1.2.0",
+    "bake_job_id": "bake-20260921T124333"
+  },
+  "interior_manifest_v1": {
+    "bake_status": "succeeded",
+    "actual_users": 4,
+    "expected_users": 0,
+    "content_revision": "1.2.0",
+    "bake_job_id": "bake-20260921T174248"
+  },
+  "authored_exclusions": 29,
+  "authored_exact_dup_groups": 8,
+  "authored_dup_extra": 8,
+  "generated_exclusions": 18,
+  "generated_exact_dups": 0,
+  "sc_annex_double_authority": {
+    "auto_h": 9.1,
+    "manual_h": 8.55,
+    "xz": "-67.3,-0.3"
+  },
+  "wp7_candidates_confirmed": {
+    "root_map_lightmap_res": "exists, scene refs point to baked/ only",
+    "root_map_lightmap_exr": "exists, no refs",
+    "authored_props_mesh_res": "exists, no code refs",
+    "bake_m01_gd__run_bake_tscn": "reference only each other",
+    "finalize_bake_manifest_gd": "self only",
+    "authored_input_hash_baseline": "referenced by verify_build.gd (to be removed in C13-04) + tools/README.md"
+  },
+  "wp7_deletions_done": {
+    "utc": "2026-09-22T15:30",
+    "files": [
+      "root map_lightmap res/exr/import",
+      "authored_props_mesh.res",
+      "bake_m01.gd+uid",
+      "run_bake.tscn",
+      "finalize_bake_manifest.gd+uid",
+      "authored_input_hash.baseline（WP1 阶段已删）"
+    ],
+    "gates": "refs=closed(baseline 记录除外)/bake_input=clean/import=0err/verify 23+28/lifecycle/ch13 全绿"
+  }
+}

@@ -5,18 +5,203 @@
     "Generated/StaticGeometry/InteriorGlassMesh",
     "Generated/StaticGeometry/InteriorStaticMesh"
   ],
-  "authored_input_hash": "",
-  "bake_finished_utc": "2026-09-21T17:43:09",
-  "bake_job_id": "bake-20260921T174248",
+  "bake_finished_utc": "2026-09-22T15:22:59",
+  "bake_input_files": [
+    {
+      "path": "res://assets/m01_afterglow/materials/asphalt.tres",
+      "sha256": "58db15d81dc19eb4b18aa95625f66571bd6464b1fd867a4d45d75f19f038bec0"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/bulb_warm.tres",
+      "sha256": "f333c4d4ada97f332b8e6e901959ed65f51820e43add7579d1b34e2fac2eff7f"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/concrete_plain.tres",
+      "sha256": "8dbb1a7fff1d94264f6c84b682ce1482de6a0cdd65328361c2b999a7f32e4e7a"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/door_dark.tres",
+      "sha256": "d10dcf05f15e1de5d44c906ce2af1890e0848ee1f82fc2e1fe56d00195addca0"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/glass_dark.tres",
+      "sha256": "172ba631890200d3e832208f4d84e8cb3c6336f7f22f8dcee84787c517e60679"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/lamp_lens.tres",
+      "sha256": "c4caf30e3ae57def41fadc1b1d3d6f2c67ab942afcb610545982837224724238"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/lit_cool.tres",
+      "sha256": "3d3566456b370e7ebea92cc719c9afb72016618d9aca4e9812e6a14dcef47838"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/lit_warm.tres",
+      "sha256": "114a533a60a91a88f417f36381b361e245fda4da8c1d0a901079526869db02ef"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/marking.tres",
+      "sha256": "005550039bb949147df227daa7581d963665d7dc3e7b9cc78fa1e00c64c7c264"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/metal_dark.tres",
+      "sha256": "501edd80b260f3f5ec6137d9b836cc6ba70f6c933cdf0a033d0bd813f2cf6ba3"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/metal_orange.tres",
+      "sha256": "7d2248ef58010e31c614f636b6f9aca1379474649809831a8524833b3e7c1afa"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/metal_teal.tres",
+      "sha256": "1098757584ed0348ecdc7f389f32a246bebe82428aaa223b9fa9344915d303b8"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/pavement.tres",
+      "sha256": "faeecb4d984012350605a68e46d2f4f88e537afad7380bb829324b0fe81cc378"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/poster.tres",
+      "sha256": "220420940a1d3aeb1bb502454d3763c565571adbe556f5976442464f234a1ce5"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/roof.tres",
+      "sha256": "80b8eeac08603d56b4d5b453c324725c59651a74be0bce05e42f770d3a6fe1f7"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/rubber.tres",
+      "sha256": "db0378929aa6aab9658feb122801a2a0481b927427dd2d158345fa987ac85c9a"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/sign_repair.tres",
+      "sha256": "56da896095df2568357103114c6eec84e4eb39323234077cba0f4deb271e99e1"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/wall_brick.tres",
+      "sha256": "fed32d1846c3a7eec98ffacac2318cad64d11bb961d886d63e3303ff719f5837"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/wall_panel.tres",
+      "sha256": "751c14c45c48bb1c5a6b0f40e33db8ede6c4b8121cbe21c55b3db716273e8977"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/wall_warm.tres",
+      "sha256": "5dabe97e01e0778106ec982c6a917618c6f9903974ecdccd811615620ed11b17"
+    },
+    {
+      "path": "res://assets/m01_afterglow/materials/wood.tres",
+      "sha256": "386d195351acc27c87db21b956641970f66fba2d3fb1e9f280304a2a82907724"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/asphalt.png",
+      "sha256": "eabb5b2cd8c5ffe0ab303e6098f733b5d90fc110b630af32ee0defe23ead2cd9"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/asphalt.png.import",
+      "sha256": "cc52857368c7ead77f5312fe45bb221ee93953087df8a498bedefd371f407ee1"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/pavement.png",
+      "sha256": "69df9388b9a42e5ffdcffca908043aed73024416193a2cbf0a173384e1ea978b"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/pavement.png.import",
+      "sha256": "142a4d4481c97fec3e823496282df58be583cfa8f1c9cc01c6a0aea0b2fc313e"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/poster.png",
+      "sha256": "f037d7c801d6c2de86ba9996935c50f37cdb5b4a3693c378087bab80f39c613c"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/poster.png.import",
+      "sha256": "d92d8e3e39a7a56f4d0eeea86f41eb9922f186f06860fc442a087b77b863924c"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/roof_gravel.png",
+      "sha256": "86ff23208e55a6913f0fbf83f2d5c355a6da20784dc18bb589ae2fb452385a6a"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/roof_gravel.png.import",
+      "sha256": "76c99d60ea6682064978c4e2229f86198443b5f3b040993f2f2d66b354006f03"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/signs/repair_main.png",
+      "sha256": "e1db1e4f90e3775943c4529197a09c399416dd029bc028c6c3f27e2c78fb37d6"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/signs/repair_main.png.import",
+      "sha256": "bb92ae0b11dcdb80e811e4c29aa26806455c19d8c6f8dfe4396c463402783bc1"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_brick.png",
+      "sha256": "3adc87a78eebab9a48c93de5dbe5423d1c1cf53b169f399b99c939714266e990"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_brick.png.import",
+      "sha256": "d3e07628868d9620d91382ab71bb80335a2ae0cf466734dc2a1379fe39b9a845"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_panel.png",
+      "sha256": "639201b7232bec0ecf73abefc326d6c7a5d41e31327c5c3f6fdf38ec521d5890"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_panel.png.import",
+      "sha256": "2fa1d4327b59f1dcaea3e20b0e6789e8716716af756cf60597993e4b9a1cc076"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_warm.png",
+      "sha256": "1931b33537a4f5be9a0f0b586beaf7fae2ed10dcc43e3641e1c56eabca519378"
+    },
+    {
+      "path": "res://assets/m01_afterglow/textures/wall_warm.png.import",
+      "sha256": "c6aeed63cfb105258d59450eccee542d55a1e2b2caebfda27d087f8f17684bbc"
+    },
+    {
+      "path": "res://maps/m01_repair_interior/generated/interior_generated.tscn",
+      "sha256": "3ddff0600ae8ac478b5ba53d21f180a0a6b566a7bf6316138f04b9a39707dbc2"
+    }
+  ],
+  "bake_input_hash": "45b1ee52f7f500f9b73fad0f10b2ed951ab74e1da28f6962b41edf1fad94dea8",
+  "bake_job_id": "bake-20260922T152245",
+  "bake_settings": {
+    "bias": "0.00050",
+    "directional": false,
+    "environment_custom_energy": "1.00000",
+    "environment_mode": 1,
+    "interior": false,
+    "quality": 1,
+    "texel_scale": "1.00000",
+    "use_denoiser": true
+  },
+  "bake_source_roots": [
+    "res://maps/m01_repair_interior/generated/interior_generated.tscn"
+  ],
   "bake_status": "succeeded",
-  "build_id": "local-20260921T174151",
+  "build_id": "local-20260922T152405",
   "content_revision": "1.2.0",
   "engine_version": "4.7.2-stable (official)",
-  "expected_baked_user_paths": [],
-  "font_source_hash": "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9",
-  "geometry_input_hash": "1a833f9b4b614d948496295d29ab06234bd79db86e9c746c457cfe8b69960e10",
-  "lighting_input_hash": "1a833f9b4b614d948496295d29ab06234bd79db86e9c746c457cfe8b69960e10",
+  "environment_snapshot": {
+    "env_ambient_light_color": "0.00000,0.00000,0.00000,1.00000",
+    "env_ambient_light_energy": "0.35000",
+    "env_ambient_light_sky_contribution": "1.00000",
+    "env_ambient_light_source": 3,
+    "env_background_mode": 2,
+    "mode": "scene",
+    "sky_energy_multiplier": "1.00000",
+    "sky_ground_bottom_color": "0.04000,0.05000,0.07000,1.00000",
+    "sky_ground_horizon_color": "0.35000,0.29000,0.28000,1.00000",
+    "sky_material_class": "ProceduralSkyMaterial",
+    "sky_sky_horizon_color": "0.55000,0.40000,0.35000,1.00000",
+    "sky_sky_top_color": "0.07000,0.11000,0.21000,1.00000",
+    "sky_sun_angle_max": "8.00000",
+    "sky_sun_curve": "0.12000"
+  },
+  "expected_baked_user_paths": [
+    "Generated/PortalDoors/ShopDoorPivot/DoorLeaf",
+    "Generated/StaticGeometry/InteriorGlassMesh",
+    "Generated/StaticGeometry/InteriorStaticMesh"
+  ],
   "map_id": "m01_repair_interior",
+  "missing_baked_user_paths": [],
   "outputs": [],
-  "schema_version": 1.0
+  "schema_version": 2
 }

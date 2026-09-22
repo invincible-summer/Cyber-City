@@ -38,6 +38,11 @@
     }
   },
   "backdrop_mesh": "res://maps/m01_afterglow/meshes/backdrop.res",
+  "build_stats": {
+    "backdrop_tris": 318,
+    "generated_props_tris": 2598,
+    "static_tris": 54632
+  },
   "camera_bounds": [
     -50.0,
     1.5,

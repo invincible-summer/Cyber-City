@@ -48,8 +48,9 @@ static func make_stub(id: String, display: String, scene: String, default_anchor
 
 
 ## 权威锚点列表 = anchor_names；capture 列表通过访问器回落，避免两份手工维护。
+## §14.3：返回副本；capture 非空时必须无重复且是 anchor_names 子集（validate 校验）。
 func get_capture_anchor_names() -> PackedStringArray:
-	return capture_anchor_names if not capture_anchor_names.is_empty() else anchor_names
+	return capture_anchor_names.duplicate() if not capture_anchor_names.is_empty() else anchor_names.duplicate()
 
 
 func validate() -> String:
@@ -67,9 +68,25 @@ func validate() -> String:
 			return "default_anchor 不在 anchor_names 中"
 	if camera_bounds.size.x <= 0.0 or camera_bounds.size.y <= 0.0 or camera_bounds.size.z <= 0.0:
 		return "camera_bounds 尺寸非法: %s" % str(camera_bounds.size)
+	var seen := {}
 	for i in anchor_names.size():
-		if str(anchor_names[i]).is_empty():
+		var anchor := str(anchor_names[i])
+		if anchor.is_empty():
 			return "anchor_names 第 %d 项为空" % i
+		if seen.has(anchor):
+			return "anchor_names 重复: %s" % anchor
+		seen[anchor] = true
+	# §14.3 capture anchors 合同：非空时不允许重复，且每项必须存在于 anchor_names
+	var capture_seen := {}
+	for i in capture_anchor_names.size():
+		var cap := str(capture_anchor_names[i])
+		if cap.is_empty():
+			return "capture_anchor_names 第 %d 项为空" % i
+		if capture_seen.has(cap):
+			return "capture_anchor_names 重复: %s" % cap
+		capture_seen[cap] = true
+		if not anchor_names.has(cap):
+			return "capture_anchor_names[%s] 不在 anchor_names 中" % cap
 	if camera_mode != "fly" and camera_mode != "walk":
 		return "camera_mode 非法: %s（允许 fly/walk）" % camera_mode
 	if camera_mode == "walk" and walk_surfaces.is_empty():

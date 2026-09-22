@@ -40,15 +40,22 @@ func _ready() -> void:
 	settings = get_node("SettingsManager")
 	map_manager = get_node("MapManager")
 	map_manager.setup(map_slot, activity_guard, settings, camera_ctl)
-	map_manager.load_registry_file("res://data/map_registry.json")
-	capture_service.setup(activity_guard, map_manager, settings, camera_ctl)
+	# §16.1：注册表加载失败必须停止默认地图请求并给出明确错误，不得假装正常启动
+	if not map_manager.load_registry_file("res://data/map_registry.json"):
+		tool_ui.show_transient_message("地图注册表不可用：data/map_registry.json 解析/校验失败")
+		printerr("MAIN: 地图注册表不可用，停止默认地图请求")
+		camera_ctl.set_input_enabled(false)
+		return
+	capture_service.setup(activity_guard, map_manager, settings, camera_ctl,
+		OS.get_environment("NEON_BUILD_ID"))  # §28.3：build_id 为空写 unknown，不伪造
 	benchmark_runner.setup(activity_guard, map_manager, settings, camera_ctl, self)
 	_wire_signals()
 	camera_ctl.pose_changed.connect(_on_pose_changed)
 
 	_refresh_map_menu()
-	# 手动同步一次画质 UI（SettingsManager 在 _ready 中发信号时本节点尚未接线）
-	_on_quality_changed(&"eco", settings.get_effective_state())
+	# §8.7（C13-22）：UI 首次同步用真实持久化档位，不再硬编码 eco；
+	# 不为初始化 UI 再次 set_profile（避免多余持久化/quality_changed）。
+	_on_quality_changed(settings.get_profile_id(), settings.get_effective_state())
 
 	var args := OS.get_cmdline_user_args()
 	var auto_map := AUTO_MAP_ID
@@ -56,13 +63,25 @@ func _ready() -> void:
 		if args[i] == "--map" and i + 1 < args.size():
 			auto_map = args[i + 1]
 	if args.has("--perf"):
-		map_manager.request_map(StringName(auto_map))
+		if _request_initial_map(StringName(auto_map)) != OK:
+			return
 		_run_automation_perf(args)
 	elif args.has("--shoot"):
-		map_manager.request_map(StringName(auto_map))
+		if _request_initial_map(StringName(auto_map)) != OK:
+			return
 		_run_automation_shoot(args)
 	else:
-		map_manager.request_map(StringName(auto_map))
+		_request_initial_map(StringName(auto_map))
+
+
+## §13.2：自动化入口的 request_map 同步 preflight 失败立即退出，不进入死等。
+func _request_initial_map(map_id: StringName) -> Error:
+	var err: Error = map_manager.request_map(map_id)
+	if err != OK:
+		printerr("MAIN: 初始地图请求失败 err=%d（%s）" % [err, map_manager.get_state_snapshot().get("last_error", "")])
+		if OS.get_cmdline_user_args().size() > 0:
+			get_tree().quit(1)
+	return err
 
 
 func _build_shell() -> void:
@@ -167,10 +186,9 @@ func _refresh_map_menu() -> void:
 
 
 func _on_quality_changed(requested_id: StringName, effective_state: Dictionary) -> void:
+	## §8.5：只做 ToolUI 状态同步。occlusion 由 SettingsManager.apply_to_map /
+	## apply_no_map_defaults 唯一控制，此处不再写 Viewport。
 	tool_ui.set_quality(String(requested_id), str(effective_state.get("profile_id", "")))
-	# 地图侧应用由 MapManager 在激活期完成；这里处理空场景时也同步 UI 状态。
-	var v: Viewport = get_viewport()
-	v.use_occlusion_culling = true
 
 
 func _on_map_loading(map_id: StringName, _tx: int, stage: StringName, progress: float) -> void:
@@ -210,7 +228,8 @@ func _on_map_loaded(map_id: StringName, _tx: int) -> void:
 		poses[anchor_id] = map_root.get_anchor_pose(anchor_id)
 	var contract: Dictionary = map_manager.get_camera_contract()
 	camera_ctl.set_anchor_poses(poses, contract.get("default_anchor", &""))
-	tool_ui.set_anchor_hint(camera_ctl._anchor_order, camera_ctl.is_walk_mode())
+	# §14.1：外部只走公开接口，不读相机私有字段
+	tool_ui.set_anchor_hint(camera_ctl.get_anchor_order(), camera_ctl.is_walk_mode())
 	_portals = []
 	for p in contract.get("portals", []):
 		if p is Dictionary:
@@ -232,7 +251,14 @@ func _on_map_unloaded(_map_id: StringName, _tx: int) -> void:
 	tool_ui.hide_portal_hint()
 
 
-func _on_map_failed(_map_id: StringName, _tx: int, _error: Error, message: String) -> void:
+func _on_map_failed(_map_id: StringName, tx: int, _error: Error, message: String) -> void:
+	## §12.2 信号语义：tx==0 = preflight 拒绝（未开始切图事务）——管理器仍 READY 时
+	## 保留当前地图 UI/相机/锚点/门户，只弹错误提示；tx>0 = 事务失败回 EMPTY，完整清空。
+	if tx == 0 and map_manager.state == map_manager.State.READY:
+		loading_overlay.visible = false
+		camera_ctl.set_input_enabled(true)
+		tool_ui.show_transient_message("加载失败：%s" % message)
+		return
 	loading_overlay.visible = false
 	tool_ui.set_busy(false)
 	camera_ctl.set_input_enabled(true)
@@ -241,6 +267,8 @@ func _on_map_failed(_map_id: StringName, _tx: int, _error: Error, message: Strin
 	_portals = []
 	_active_portal = {}
 	tool_ui.hide_portal_hint()
+	tool_ui.set_anchor_hint(PackedStringArray())
+	_refresh_bookmark_menu()
 	tool_ui.set_busy(true, "加载失败：%s\n可从下方菜单重试或返回空场景。" % message)
 
 
@@ -331,7 +359,8 @@ func _on_bookmark_delete(bookmark_id: String) -> void:
 
 func _refresh_bookmark_menu() -> void:
 	var map_id: StringName = map_manager.get_current_map_id()
-	tool_ui.set_bookmarks(bookmarks.list_bookmarks(map_id))
+	# §15：以当前地图实际 revision 为基准标记旧书签
+	tool_ui.set_bookmarks(bookmarks.list_bookmarks(map_id), map_manager.get_current_content_revision())
 
 
 # ---------------- 输入 ----------------
@@ -350,12 +379,10 @@ func _input(event: InputEvent) -> void:
 
 func _handle_key(key: Key) -> void:
 	match key:
-		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6:
+		KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+			# §14.2：统一 1–9；超界索引由 go_to_anchor_index 安全 no-op
 			if not tool_ui.is_menu_open():
-				var idx := (key - KEY_1) as int
-				var names: PackedStringArray = camera_ctl._anchor_order
-				if idx >= 0 and idx < names.size():
-					camera_ctl.go_to_anchor(names[idx])
+				camera_ctl.go_to_anchor_index(key - KEY_1)
 		KEY_HOME:
 			camera_ctl.go_to_default_anchor()
 		KEY_F1:
@@ -418,10 +445,19 @@ func _process(_delta: float) -> void:
 # ---------------- 自动化：截图 ----------------
 
 func _run_automation_shoot(args: PackedStringArray) -> void:
-	await _await_map_ready()
+	# §13.2：等待 READY 必须有失败/超时出口，坏 --map 不得永久挂住进程
+	if await _await_map_ready() != OK:
+		printerr("SHOOT_ABORT: 地图未就绪（%s）" % str(map_manager.get_state_snapshot().get("last_error", "timeout")))
+		get_tree().quit(1)
+		return
 	var tiers: Array[String] = _tier_args(args, ["eco", "balanced"])
 	var graybox := args.has("--graybox")
 	var shot_root := get_node("CaptureService")
+	# §14.3：截图自动化使用 capture_anchor_ids（当前为空回落全部锚点）
+	var contract: Dictionary = map_manager.get_camera_contract()
+	var capture_ids: Array[StringName] = []
+	for a in contract.get("capture_anchor_ids", []):
+		capture_ids.append(a)
 
 	if graybox:
 		var gray := StandardMaterial3D.new()
@@ -430,46 +466,64 @@ func _run_automation_shoot(args: PackedStringArray) -> void:
 		var roots := get_tree().get_nodes_in_group("active_map_root")
 		var map_root := roots[0] as MapRoot
 		_apply_override(map_root, gray)
-		await _shoot_anchors(shot_root, "graybox")
+		var g_err: Error = await _shoot_anchors(shot_root, "graybox", capture_ids)
 		_apply_override(map_root, null)
+		if g_err != OK:
+			get_tree().quit(1)
+			return
 
 	for tier in tiers:
-		settings.set_profile(StringName(tier), false)
+		if settings.set_profile(StringName(tier), false) != OK:
+			printerr("SHOOT_ABORT: 画质档不存在 %s" % tier)
+			get_tree().quit(1)
+			return
 		await get_tree().create_timer(0.6).timeout
-		await _shoot_anchors(shot_root, tier)
+		if await _shoot_anchors(shot_root, tier, capture_ids) != OK:
+			get_tree().quit(1)
+			return
 	print("SHOOT_DONE")
-	get_tree().quit()
+	get_tree().quit(0)
 
 
-func _shoot_anchors(shot_root: Node, tier: String) -> void:
-	for anchor in camera_ctl._anchor_order:
-		camera_ctl.go_to_anchor(anchor)
+func _shoot_anchors(shot_root: Node, tier: String, anchors: Array[StringName]) -> Error:
+	## §13.3：任何目标失败都让本轮自动化 exit 1；不允许静默跳图后仍 SHOOT_DONE。
+	## §29：不再拍摄"diag"图（诊断层属于 capture_ui，截图时本就会被隐藏，
+	## 该图只是重复截图且无独立证据价值；render_stats JSON 是截图时诊断权威）。
+	var failed: Array[String] = []
+	var capture_failed_flag := [false]
+	var on_fail := func(_rid: int, _err: Error, msg: String) -> void:
+		failed.append(msg)
+		capture_failed_flag[0] = true
+	for anchor in anchors:
+		if not camera_ctl.go_to_anchor(String(anchor)):
+			printerr("SHOOT_FAIL: 机位切换失败 %s_%s" % [tier, anchor])
+			failed.append("go_to_anchor %s" % anchor)
+			continue
 		# 1.2 修复：拍摄前把鼠标移到右下角，避免视口内光标残留在画面中部
 		Input.warp_mouse(get_viewport().get_visible_rect().end - Vector2(12.0, 12.0))
-		# 等待须大于 CaptureService.THROTTLE_MSEC(500ms)，否则 request_capture 返回
-		# ERR_BUSY 被静默跳过（1.2 修复：balanced 档曾因此缺 entry/workbench 两张）
+		# 等待须大于 CaptureService.THROTTLE_MSEC(500ms)，否则 request_capture 返回 ERR_BUSY
 		await get_tree().create_timer(0.62).timeout
 		var err: Error = shot_root.request_capture("%s_%s" % [tier, anchor])
 		if err != OK:
 			await get_tree().create_timer(0.35).timeout
 			err = shot_root.request_capture("%s_%s" % [tier, anchor])
 		if err != OK:
-			push_warning("自动截图跳过 %s_%s（capture err=%d）" % [tier, anchor, err])
-		if err == OK:
-			await shot_root.capture_completed
+			printerr("SHOOT_FAIL: request_capture err=%d %s_%s" % [err, tier, anchor])
+			failed.append("request_capture %s_%s" % [tier, anchor])
+			continue
+		shot_root.capture_failed.connect(on_fail, CONNECT_ONE_SHOT)
+		await shot_root.capture_completed
+		if capture_failed_flag[0]:
+			shot_root.capture_failed.disconnect(on_fail)
+			printerr("SHOOT_FAIL: 截图写盘失败 %s_%s" % [tier, anchor])
+			break
+		if shot_root.capture_failed.is_connected(on_fail):
+			shot_root.capture_failed.disconnect(on_fail)
 	print("自动截图完成: ", tier)
-	# 一张带诊断的验证图
-	if camera_ctl._anchor_order.size() > 0:
-		camera_ctl.go_to_anchor(camera_ctl._anchor_order[0])
-		await get_tree().create_timer(0.35).timeout
-		diagnostics.visible = true
-		var err: Error = shot_root.request_capture("%s_%s_diag" % [tier, camera_ctl._anchor_order[0]])
-		if err != OK:
-			await get_tree().create_timer(0.35).timeout
-			err = shot_root.request_capture("%s_%s_diag" % [tier, camera_ctl._anchor_order[0]])
-		if err == OK:
-			await shot_root.capture_completed
-		diagnostics.visible = false
+	if not failed.is_empty():
+		printerr("SHOOT_FAIL: 本档 %d 项失败: %s" % [failed.size(), ", ".join(failed)])
+		return ERR_CANT_CREATE
+	return OK
 
 
 func _apply_override(root: Node, mat: Material) -> void:
@@ -483,17 +537,20 @@ func _apply_override(root: Node, mat: Material) -> void:
 # ---------------- 自动化：性能路线（BenchmarkRunner 合同） ----------------
 
 func _run_automation_perf(args: PackedStringArray) -> void:
-	await _await_map_ready()
+	# §9.2 错误 C：不再删除用户 settings.cfg；Benchmark persist=false + 快照恢复已足够。
+	if await _await_map_ready() != OK:
+		printerr("PERF_ABORT: 地图未就绪（%s）" % str(map_manager.get_state_snapshot().get("last_error", "timeout")))
+		get_tree().quit(1)
+		return
 	tool_ui.set_visible_all(false)
 	(diagnostics.get_parent() as CanvasLayer).visible = false
-	# 测量前重置用户配置，保证档位序列确定
-	DirAccess.remove_absolute("user://settings.cfg")
 	var tiers: Array[String] = _tier_args(args, ["eco", "balanced"])
 	var runs := 3
 	var route := "legacy_v1"
 	var mode := "capped"
 	var occlusion := "default"
 	var warmup := 15.0
+	var duration := 60.0
 	for i in range(args.size()):
 		match args[i]:
 			"--runs":
@@ -511,21 +568,27 @@ func _run_automation_perf(args: PackedStringArray) -> void:
 			"--warmup":
 				if i + 1 < args.size():
 					warmup = float(args[i + 1])
-	print("PERF warmup(内置于首轮) 15s …")
-	await get_tree().create_timer(15.0).timeout
+			"--duration":
+				# §34：headroom 冒烟可 1..60；capped 固定 60，不开放缩短正式采样
+				if i + 1 < args.size() and mode == "headroom":
+					duration = clampf(float(args[i + 1]), 1.0, 60.0)
 	for tier in tiers:
+		if settings.set_profile(StringName(tier), false) != OK:
+			printerr("PERF_ABORT: 画质档不存在 %s" % tier)
+			get_tree().quit(1)
+			return
 		for r in runs:
 			var stamp := Time.get_datetime_string_from_system(false, true)
 			stamp = stamp.replace(":", "").replace("-", "").replace("T", "_").replace(" ", "")
-			var run_id := "v11_%s_%s_%s_r%d" % [route, tier, stamp, r]
+			var run_id := "v13_%s_%s_%s_r%d" % [route, tier, stamp, r]
 			_perf_config = {
 				"schema_version": 1,
 				"run_id": run_id,
 				"profile_id": tier,
 				"route_id": route,
 				"mode": mode,
-				"warmup_seconds": warmup if r == 0 else 0.0,
-				"duration_seconds": 60.0,
+				"warmup_seconds": warmup,  # §10.5：每轮 warmup 由 BenchmarkRunner 单一权威控制
+				"duration_seconds": duration,
 				"occlusion_override": occlusion,
 				"output_directory": "user://benchmarks",
 			}
@@ -541,7 +604,7 @@ func _run_automation_perf(args: PackedStringArray) -> void:
 				return
 			print("PERF run done: ", run_id)
 	print("PERF_DONE")
-	get_tree().quit()
+	get_tree().quit(0)
 
 
 func _await_benchmark_end() -> Array:
@@ -563,20 +626,36 @@ func _await_benchmark_end() -> Array:
 	return outcome
 
 
-func _await_map_ready() -> void:
+## §13.2：等待 READY 带超时/失败出口。READY→OK；ERROR/EMPTY 带 last_error→ERR_CANT_OPEN；
+## 超时→ERR_TIMEOUT。不再无出口死等。
+func _await_map_ready(timeout_sec: float = 35.0) -> Error:
+	var start := Time.get_ticks_msec()
 	while map_manager.state != 1:  # MapManager.State.READY
+		if map_manager.state == 0 and not str(map_manager.get_state_snapshot().get("last_error", "")).is_empty():
+			return ERR_CANT_OPEN
+		if float(Time.get_ticks_msec() - start) / 1000.0 > timeout_sec:
+			return ERR_TIMEOUT
 		await get_tree().process_frame
 	await get_tree().create_timer(0.5).timeout
+	return OK
 
 
 func _tier_args(args: PackedStringArray, defaults: Array[String]) -> Array[String]:
+	## §13.4：逐项验证 profile 存在；--quality nonsense 不得用旧档渲染却按 nonsense 命名。
 	var tiers: Array[String] = []
+	var wanted := ""
 	for i in range(args.size()):
 		if args[i] == "--quality" and i + 1 < args.size():
-			if args[i + 1] == "both":
-				tiers = defaults.duplicate()
-			else:
-				tiers = [args[i + 1]]
+			wanted = args[i + 1]
+	if wanted == "both":
+		tiers = defaults.duplicate()
+	elif not wanted.is_empty():
+		tiers = [wanted]
 	if tiers.is_empty():
 		tiers = defaults.duplicate()
+	var known: Array[String] = settings.get_quality_ids()
+	for t in tiers:
+		if not known.has(t):
+			printerr("未知画质档: %s（可用: %s）" % [t, ", ".join(known)])
+			return []
 	return tiers

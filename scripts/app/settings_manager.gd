@@ -83,20 +83,27 @@ func get_effective_state() -> Dictionary:
 	}
 
 
-## 将当前档位应用到指定地图根。应用后不保留 map_root 强引用。
+## 将当前档位应用到指定地图根（§8.3）：地图质量项 + 地图默认 occlusion 一次落值。
+## 应用后不保留 map_root 强引用。
 func apply_to_map(map_root) -> Error:
 	if map_root == null:
 		return ERR_INVALID_PARAMETER
 	if not map_root is MapRoot:
 		return ERR_INVALID_PARAMETER
-	return (map_root as MapRoot).apply_quality(current_profile)
+	var err := (map_root as MapRoot).apply_quality(current_profile)
+	var vp := get_viewport()
+	if vp != null:
+		vp.use_occlusion_culling = (map_root as MapRoot).get_occlusion_enabled()
+	return err
 
 
-## 窗口状态变化入口（main.gd 通知转发）。恢复时回到用户选择的帧率，不写入用户设置。
-func set_window_state(focused: bool, minimized: bool) -> void:
-	_focused = focused
-	_minimized = minimized
-	_apply_effective_frame_cap()
+## §8.6：离开任何地图后恢复"不属于地图"的全局视口覆盖（当前为工程默认 occlusion）。
+## 只由 MapManager 在真正回到 EMPTY 的两条路径调用。
+func apply_no_map_defaults() -> void:
+	var vp := get_viewport()
+	if vp != null:
+		vp.use_occlusion_culling = bool(ProjectSettings.get_setting(
+			"rendering/occlusion_culling/use_occlusion_culling", true))
 
 
 ## 兼容适配：旧签名。
@@ -169,6 +176,7 @@ func save_settings() -> void:
 
 
 func _apply_profile(id: String, save: bool) -> void:
+	## §8.3 完整顺序：档位 → 视口 → 帧率 → 活动地图（含 occlusion）→ 最后才发信号。
 	current_quality = id
 	current_profile = profiles.get(id, {})
 	var vp := get_viewport()
@@ -182,7 +190,28 @@ func _apply_profile(id: String, save: bool) -> void:
 	if save:
 		save_settings()
 	_apply_effective_frame_cap()
+	_apply_to_active_map_if_present()
 	quality_changed.emit(StringName(id), get_effective_state())
+
+
+## §8.3：档位变化时把当前档位作用到活动地图；>1 个活动根是生命周期违约。
+func _apply_to_active_map_if_present() -> void:
+	var roots := get_tree().get_nodes_in_group("active_map_root")
+	if roots.is_empty():
+		return
+	if roots.size() > 1:
+		push_error("SettingsManager: active_map_root=%d（应为 1），跳过地图档位应用" % roots.size())
+		return
+	var r := roots[0]
+	if r is MapRoot:
+		apply_to_map(r)
+
+
+## 窗口状态变化（焦点/最小化）只影响帧率，不影响地图内质量项。
+func set_window_state(focused: bool, minimized: bool) -> void:
+	_focused = focused
+	_minimized = minimized
+	_apply_effective_frame_cap()
 
 
 func _apply_effective_frame_cap() -> void:

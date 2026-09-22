@@ -20,7 +20,8 @@ const STATE_NAMES: Dictionary = {
 const STAGE_UNLOADING := &"unloading"
 const STAGE_RESOURCE := &"resource_loading"
 const STAGE_ACTIVATING := &"activating"
-const LOAD_TIMEOUT_SEC := 30.0
+## 加载超时（§11.3）：测试可注入极小值触发 orphan；生产默认 30 秒，不从用户配置暴露。
+var load_timeout_sec: float = 30.0
 
 var state: State = State.EMPTY
 var current_map_id: StringName = &""
@@ -59,7 +60,8 @@ func setup(map_slot: Node3D, guard: ActivityGuard = null, quality = null, camera
 
 
 func load_registry_file(path: String) -> bool:
-	## 从 JSON 注册表加载 map_id -> definition_path。只保存字符串。
+	## §16.1 原子加载：全部条目校验通过才一次性替换 _registry/_definitions；
+	## 任一失败返回 false 并保留旧注册表，不留下半加载状态。调用方必须检查返回值。
 	var txt := FileAccess.get_file_as_string(path)
 	if txt.is_empty():
 		push_error("MapManager: 注册表不可读 %s" % path)
@@ -68,14 +70,43 @@ func load_registry_file(path: String) -> bool:
 	if parsed == null or not parsed is Dictionary:
 		push_error("MapManager: 注册表 JSON 非法 %s" % path)
 		return false
+	if int(parsed.get("schema_version", 0)) != 1:
+		push_error("MapManager: 注册表 schema_version 非 1: %s" % path)
+		return false
 	var maps: Array = parsed.get("maps", [])
+	if not maps is Array or maps.is_empty():
+		push_error("MapManager: 注册表 maps 为空 %s" % path)
+		return false
+	var new_registry: Dictionary = {}
+	var new_definitions: Dictionary = {}
 	for entry in maps:
-		if entry is Dictionary:
-			var mid: String = str(entry.get("map_id", ""))
-			var dpath: String = str(entry.get("definition_path", ""))
-			if not mid.is_empty() and not dpath.is_empty():
-				_registry[mid] = dpath
-	return not _registry.is_empty()
+		if not entry is Dictionary:
+			push_error("MapManager: 注册表条目非字典 %s" % path)
+			return false
+		var mid: String = str(entry.get("map_id", ""))
+		var dpath: String = str(entry.get("definition_path", ""))
+		if mid.is_empty() or new_registry.has(mid):
+			push_error("MapManager: 注册表 map_id 为空或重复: %s" % mid)
+			return false
+		if not dpath.begins_with("res://") or not ResourceLoader.exists(dpath):
+			push_error("MapManager: 定义路径非法或不存在: %s" % dpath)
+			return false
+		var def := load(dpath) as MapDefinition
+		if def == null:
+			push_error("MapManager: 定义不可加载: %s" % dpath)
+			return false
+		var reason := def.validate()
+		if not reason.is_empty():
+			push_error("MapManager: 定义非法 %s: %s" % [dpath, reason])
+			return false
+		if def.map_id != mid:
+			push_error("MapManager: 注册表 map_id(%s) 与定义 map_id(%s) 不一致" % [mid, def.map_id])
+			return false
+		new_registry[mid] = dpath
+		new_definitions[mid] = def
+	_registry = new_registry
+	_definitions = new_definitions
+	return true
 
 
 func inject_registry(entries: Dictionary) -> void:
@@ -144,11 +175,15 @@ func get_camera_contract() -> Dictionary:
 	var anchor_ids: Array[StringName] = []
 	for a in def.anchor_names:
 		anchor_ids.append(StringName(str(a)))
+	var capture_anchor_ids: Array[StringName] = []
+	for a in def.get_capture_anchor_names():
+		capture_anchor_ids.append(StringName(str(a)))
 	return {
 		"map_id": StringName(def.map_id),
 		"bounds": AABB(def.camera_bounds),
 		"exclusions": def.camera_exclusion_bounds.duplicate(),
 		"anchor_ids": anchor_ids,
+		"capture_anchor_ids": capture_anchor_ids,
 		"default_anchor": StringName(def.default_anchor),
 		"camera_mode": def.camera_mode,
 		"walk_surfaces": def.walk_surfaces.duplicate(),
@@ -239,6 +274,9 @@ func _validate_request(map_id: String) -> MapDefinition:
 	var reason := def.validate()
 	if not reason.is_empty():
 		return fail.call(ERR_INVALID_PARAMETER, "定义非法: %s" % reason)
+	if def.map_id != map_id:
+		# §16.2 防御：注册表与定义不一致（原子加载后理论上不可能，双保险）
+		return fail.call(ERR_INVALID_PARAMETER, "定义 map_id(%s) 与请求(%s) 不一致" % [def.map_id, map_id])
 	if not def.available:
 		return fail.call(ERR_INVALID_PARAMETER, "地图标记为不可用")
 	if not ResourceLoader.exists(def.scene_path):
@@ -312,10 +350,13 @@ func _after_unload() -> void:
 			_tx_valid = false
 			_set_state(State.ERROR)
 			_set_state(State.EMPTY)
+			_apply_no_map_defaults_if_present()
 			return
 		_begin_load(def)
 	else:
 		_set_state(State.EMPTY)
+		# §8.6：正常卸载完成且无后续地图 → 恢复工程默认 occlusion（不硬编码 true）
+		_apply_no_map_defaults_if_present()
 
 
 # ============================ 加载 ============================
@@ -342,6 +383,11 @@ func _begin_load(def: MapDefinition) -> void:
 	set_process(true)
 
 
+func _update_process_enabled() -> void:
+	## §11.2 唯一布尔权威：LOADING 或孤儿未收尾都必须轮询；仅两者皆空才停。
+	set_process(state == State.LOADING or not _orphan_paths.is_empty())
+
+
 func _process(_delta: float) -> void:
 	if state != State.LOADING and _orphan_paths.is_empty():
 		set_process(false)
@@ -352,12 +398,12 @@ func _process(_delta: float) -> void:
 		if st != ResourceLoader.THREAD_LOAD_IN_PROGRESS:
 			_orphan_paths.erase(path)
 	if state != State.LOADING:
-		set_process(false)
+		_update_process_enabled()
 		return
 	if not _tx_valid:
 		return
 	var elapsed := float(Time.get_ticks_usec() - _load_start_usec) / 1_000_000.0
-	if elapsed > LOAD_TIMEOUT_SEC:
+	if elapsed > load_timeout_sec:
 		# 超时不取消线程：事务失效，路径转入孤儿轮询，终结后自然丢弃。
 		_orphan_paths[_loading_scene_path] = true
 		_fail_load(ERR_TIMEOUT, "加载超时（%.0f 秒）: %s" % [elapsed, _loading_scene_path])
@@ -382,11 +428,19 @@ func _fail_load(err: Error, message: String) -> void:
 	_tx_valid = false
 	_loading_id = &""
 	_pending_entry_anchor = &""
-	set_process(false)
 	_last_error = message
 	map_failed.emit(map_id, tx, err, message)
 	_release_token()
 	_set_state(State.EMPTY)
+	# §8.6：真正回到 EMPTY（无图）时恢复工程默认 occlusion
+	_apply_no_map_defaults_if_present()
+	# §11.2：孤儿未收尾时不得关闭轮询（C13-08：此前 set_process(false) 让 orphan 永久滞留）
+	_update_process_enabled()
+
+
+func _apply_no_map_defaults_if_present() -> void:
+	if _quality != null and _quality.has_method("apply_no_map_defaults"):
+		_quality.apply_no_map_defaults()
 
 
 func _activate_loaded_scene() -> void:
@@ -469,6 +523,8 @@ func _fail_activation(map_id: StringName, tx: int, err: Error, reason: String) -
 	_set_state(State.ERROR)
 	map_failed.emit(map_id, tx, err, reason)
 	_set_state(State.EMPTY)
+	# §8.6：激活失败回 EMPTY → 恢复工程默认 occlusion
+	_apply_no_map_defaults_if_present()
 
 
 # ============================ 环境转发（chapter1-1 §7.3） ============================

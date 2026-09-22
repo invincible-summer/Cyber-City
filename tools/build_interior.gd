@@ -66,7 +66,11 @@ func _run() -> void:
 	_furnish_ground(mb)
 	_furnish_upper(mb)
 	var baked_mesh := mb.commit(mats, "%s/interior_static.res" % MESH_DIR, Vector2i(2048, 2048))
-	print("interior static: tris=", mb.tri_count(), " surf=", baked_mesh.get_surface_count(),
+	if mb.get_last_save_error() != OK:
+		quit(1)
+		return
+	var stats_static_tris := mb.tri_count()
+	print("interior static: tris=", stats_static_tris, " surf=", baked_mesh.get_surface_count(),
 		" uv2_max_y=%.3f overflow=%d" % [mb.packer.max_y(), mb.packer.overflow_count])
 
 	var geo := Node3D.new()
@@ -80,6 +84,9 @@ func _run() -> void:
 	var mb_glass := GL.MeshBuilder.new()
 	_glass(mb_glass)
 	var glass_mesh := mb_glass.commit(mats, "%s/interior_glass.res" % MESH_DIR, Vector2i(0, 0))
+	if mb_glass.get_last_save_error() != OK:
+		quit(1)
+		return
 	var mi_glass := MeshInstance3D.new()
 	mi_glass.name = "InteriorGlassMesh"
 	mi_glass.mesh = glass_mesh
@@ -106,6 +113,10 @@ func _run() -> void:
 	var mb_bd := GL.MeshBuilder.new()
 	_backdrop(mb_bd)
 	var backdrop_mesh := mb_bd.commit(mats, "%s/interior_backdrop.res" % MESH_DIR, Vector2i(0, 0))
+	if mb_bd.get_last_save_error() != OK:
+		quit(1)
+		return
+	var stats_backdrop_tris := mb_bd.tri_count()
 	var bd := Node3D.new()
 	bd.name = "Backdrop"
 	var mi_bd := MeshInstance3D.new()
@@ -118,6 +129,9 @@ func _run() -> void:
 	var mb_door := GL.MeshBuilder.new()
 	_door_leaf(mb_door)
 	var door_mesh := mb_door.commit(mats, "%s/interior_door_leaf.res" % MESH_DIR, Vector2i(256, 256))
+	if mb_door.get_last_save_error() != OK:
+		quit(1)
+		return
 	var doors := Node3D.new()
 	doors.name = "PortalDoors"
 	var pivot := Node3D.new()
@@ -142,10 +156,16 @@ func _run() -> void:
 		quit(1)
 		return
 	err = ResourceSaver.save(ps, GEN_SCENE)
+	if err != OK:
+		push_error("室内生成场景保存失败: %d（旧产物可能仍在，禁止冒充本轮成功）" % err)
+		quit(1)
+		return
 	print("interior generated scene saved: ", err)
 
 	_build_contract_data()
-	_save_spec()
+	if _save_spec(stats_static_tris, stats_backdrop_tris) != OK:
+		quit(1)
+		return
 	print("INTERIOR_DONE")
 	quit(0)
 
@@ -790,7 +810,7 @@ func _flat_bd(mb: GL.MeshBuilder, key: String, center: Vector3, w: float, h: flo
 		[Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)], Vector2())
 
 
-func _save_spec() -> void:
+func _save_spec(stats_static_tris: int, stats_backdrop_tris: int) -> Error:
 	var excl: Array = []
 	for b in exclusions:
 		excl.append([b.position.x, b.position.y, b.position.z, b.size.x, b.size.y, b.size.z])
@@ -816,15 +836,21 @@ func _save_spec() -> void:
 		"lighting_profile_id": "m01_interior_dusk_v12",
 		"content_revision": "1.2.0",
 		"requires_baked_lighting": true,
+		## build_stats（§26.1）
+		"build_stats": {
+			"static_tris": stats_static_tris,
+			"backdrop_tris": stats_backdrop_tris,
+		},
 	}
 	var f := FileAccess.open(GEN_SPEC, FileAccess.WRITE)
 	if f == null:
 		push_error("interior spec 写入失败")
-		return
+		return ERR_CANT_OPEN
 	f.store_string(JSON.stringify(spec, "  "))
 	f.close()
 	print("interior spec saved: anchors=", anchors.size(), " exclusions=", excl.size(),
 		" walk_surfaces=", walks.size(), " portals=", portals.size())
+	return OK
 
 
 func _set_all_owners(node: Node, root: Node) -> void:

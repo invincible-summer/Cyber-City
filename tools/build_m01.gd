@@ -39,23 +39,72 @@ func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(MESH_DIR)
 	DirAccess.make_dir_recursive_absolute(GENERATED_DIR)
 	DirAccess.make_dir_recursive_absolute("res://maps/m01_afterglow/baked")
-	_mk_materials()
+	if _mk_materials() != OK:
+		quit(1)
+		return
 
 	var root := _build_generated_root()
-	_build_static_geometry(root)
-	_build_props(root)
+	if _build_static_geometry(root) != OK:
+		quit(1)
+		return
+	if _build_props(root) != OK:
+		quit(1)
+		return
 	_build_lighting(root)
-	_build_backdrop_mesh()
+	if _build_backdrop_mesh() != OK:
+		quit(1)
+		return
 
-	var err := ResourceSaver.save(_pack(root), GENERATED_SCENE)
+	# C13-21：pack 失败返回 null，上层不得继续 ResourceSaver.save
+	var ps := _pack(root)
+	if ps == null:
+		quit(1)
+		return
+	var err := ResourceSaver.save(ps, GENERATED_SCENE)
+	if err != OK:
+		push_error("生成场景保存失败: %d（旧产物可能仍在，禁止冒充本轮成功）" % err)
+		quit(1)
+		return
 	print("generated scene saved: ", err, " -> ", GENERATED_SCENE)
-	_save_spec()
-	_build_fixture()
+	if _save_spec() != OK:
+		quit(1)
+		return
+	if _build_fixture() != OK:
+		quit(1)
+		return
+	if _postvalidate() != OK:
+		quit(1)
+		return
 	print("BUILD_DONE tris_est=", _total_tris)
 	quit(0)
 
 
+func _require(cond: bool, label: String) -> bool:
+	## 必需输出统一检查（C13-21）：失败打印并返回 false，调用方 quit(1)。
+	if not cond:
+		push_error("必需输出校验失败: %s" % label)
+	return cond
+
+
+func _postvalidate() -> Error:
+	## §6.5.3：本轮预期文件存在、JSON 可重解析、场景可 fresh-load。
+	for p in [GENERATED_SCENE, SPEC_PATH,
+			"%s/baked_static.res" % MESH_DIR, "%s/baked_props.res" % MESH_DIR, "%s/backdrop.res" % MESH_DIR]:
+		if not _require(FileAccess.file_exists(p), "存在 %s" % p):
+			return ERR_FILE_NOT_FOUND
+	if not _require(JSON.parse_string(FileAccess.get_file_as_string(SPEC_PATH)) is Dictionary, "spec JSON 可重解析"):
+		return ERR_PARSE_ERROR
+	var fresh := ResourceLoader.load(GENERATED_SCENE, "PackedScene", ResourceLoader.CACHE_MODE_REPLACE_DEEP) as PackedScene
+	if not _require(fresh != null, "生成场景可 fresh-load"):
+		return ERR_CANT_OPEN
+	return OK
+
+
 var _total_tris := 0
+## build_stats（§26.1）：制作统计只用于验收，不进 MapDefinition、不作运行时输入。
+var _stats_static_tris := 0
+var _stats_props_tris := 0
+var _stats_backdrop_tris := 0
 
 
 func _pack(root: Node) -> PackedScene:
@@ -64,6 +113,7 @@ func _pack(root: Node) -> PackedScene:
 	var result := ps.pack(root)
 	if result != OK:
 		push_error("pack 失败: %d" % result)
+		return null
 	return ps
 
 
@@ -83,7 +133,7 @@ func _own(node: Node, root: Node) -> void:
 
 # ============================ 材质 ============================
 
-func _mk_materials() -> void:
+func _mk_materials() -> Error:
 	mats["wall_bluegray"] = _tex_mat("wall_bluegray", 0.95)
 	mats["wall_warm"] = _tex_mat("wall_warm", 0.93)
 	mats["wall_panel"] = _tex_mat("wall_panel", 0.85)
@@ -130,7 +180,11 @@ func _mk_materials() -> void:
 	mats["sign_soda"] = _sign("signs/soda", 2.2)
 	mats["sign_bar_v"] = _sign("signs/bar_v", 2.6)
 	for k in mats:
-		ResourceSaver.save(mats[k], "%s/%s.tres" % [MAT_DIR, k])
+		var m_err := ResourceSaver.save(mats[k], "%s/%s.tres" % [MAT_DIR, k])
+		if m_err != OK:
+			push_error("共享材质保存失败 %s err=%d（interior 依赖共享材质，必须中止）" % [k, m_err])
+			return m_err
+	return OK
 
 
 func _tex_mat(name: String, rough: float) -> StandardMaterial3D:
@@ -198,7 +252,7 @@ func _build_generated_root() -> Node3D:
 	return root
 
 
-func _build_static_geometry(root: Node3D) -> void:
+func _build_static_geometry(root: Node3D) -> Error:
 	# 普通容器：真正的 LightmapGI 由 assemble_m01 挂在 map.tscn 根部，
 	# 生成层内部不得再嵌 LightmapGI（嵌套会劫持子树网格的光照采样）。
 	var lm := Node3D.new()
@@ -215,6 +269,9 @@ func _build_static_geometry(root: Node3D) -> void:
 
 	var mesh := mb.commit(mats, "%s/baked_static.res" % MESH_DIR, Vector2i(2048, 2048))
 	_total_tris += mb.tri_count()
+	_stats_static_tris = mb.tri_count()
+	if mb.get_last_save_error() != OK:
+		return mb.get_last_save_error()
 	print("static: tris=", mb.tri_count(), " surf=", mesh.get_surface_count(), " uv2_used=%.3f uv2_max_y=%.3f overflow=%d" % [mb.packer.utilization(), mb.packer.max_y(), mb.packer.overflow_count])
 	if mb.packer.overflow_count > 0:
 		print("overflow sizes (w×h in 1/1000 UV): ", mb.packer.overflow_report())
@@ -225,9 +282,10 @@ func _build_static_geometry(root: Node3D) -> void:
 	_add_occluders(sg)
 	_own(sg, root)
 	exclusions.append_array(_exclusion_list())
+	return OK
 
 
-func _build_props(root: Node3D) -> void:
+func _build_props(root: Node3D) -> Error:
 	var lm := root.get_node("BakedWorld")
 	var props := _node3d("Props", lm)
 	var mb := GL.MeshBuilder.new()
@@ -237,6 +295,9 @@ func _build_props(root: Node3D) -> void:
 	_station_area_props(mb)
 	var mesh := mb.commit(mats, "%s/baked_props.res" % MESH_DIR, Vector2i(512, 512))
 	_total_tris += mb.tri_count()
+	_stats_props_tris = mb.tri_count()
+	if mb.get_last_save_error() != OK:
+		return mb.get_last_save_error()
 	print("props: tris=", mb.tri_count(), " surf=", mesh.get_surface_count())
 	var mi := MeshInstance3D.new()
 	mi.name = "BakedProps"
@@ -245,6 +306,7 @@ func _build_props(root: Node3D) -> void:
 	mi.set_meta("node_groups", PackedStringArray(["detail_props"]))
 	props.add_child(mi)
 	_own(props, root)
+	return OK
 
 
 # ============================ 地面与街道 ============================
@@ -921,7 +983,7 @@ func _build_lighting(root: Node3D) -> void:
 	_own(lighting, root)
 
 
-func _build_backdrop_mesh() -> void:
+func _build_backdrop_mesh() -> Error:
 	## 远景天际线网格：只产出 mesh 资源；节点由 assemble_m01 放置在 BakedWorld 之外。
 	var mb := GL.MeshBuilder.new()
 	# 远景塔楼环（不烘焙：px_per_m=0）
@@ -962,12 +1024,16 @@ func _build_backdrop_mesh() -> void:
 	mb.box("ground_far", Vector3(-260, -0.06, -260), Vector3(260, -0.04, 260), 1.0 / 36.0, 0.0, 4)
 	var mesh := mb.commit(mats, "%s/backdrop.res" % MESH_DIR, Vector2i(64, 64))
 	_total_tris += mb.tri_count()
+	_stats_backdrop_tris = mb.tri_count()
+	if mb.get_last_save_error() != OK:
+		return mb.get_last_save_error()
 	print("backdrop: tris=", mb.tri_count())
+	return OK
 
 
 # ============================ 生成规格（供 assemble_m01 组装） ============================
 
-func _save_spec() -> void:
+func _save_spec() -> Error:
 	## 输出生成层规格 JSON：禁入体积、灯位、环境件位置。assemble 据此组合最终地图。
 	var excl: Array = []
 	for b in exclusions:
@@ -997,10 +1063,17 @@ func _save_spec() -> void:
 	var f := FileAccess.open(SPEC_PATH, FileAccess.WRITE)
 	if f == null:
 		push_error("spec 写入失败")
-		return
+		return ERR_CANT_OPEN
+	## build_stats（§26.1）：非负制作统计；verify 只校验存在与非负，不与历史固定值比对。
+	spec["build_stats"] = {
+		"static_tris": _stats_static_tris,
+		"generated_props_tris": _stats_props_tris,
+		"backdrop_tris": _stats_backdrop_tris,
+	}
 	f.store_string(JSON.stringify(spec, "  "))
 	f.close()
 	print("spec saved: ", SPEC_PATH)
+	return OK
 
 
 # ============================ 遮挡体 ============================
@@ -1021,7 +1094,7 @@ func _add_occluders(parent: Node3D) -> void:
 
 # ============================ 测试地图 ============================
 
-func _build_fixture() -> void:
+func _build_fixture() -> Error:
 	DirAccess.make_dir_recursive_absolute("res://tests/fixtures")
 	var root := Node3D.new()
 	root.name = "MiniTestMap"
@@ -1030,6 +1103,8 @@ func _build_fixture() -> void:
 	mb.box("concrete_plain", Vector3(-12, 0, -12), Vector3(12, 0.2, 12), 0.4, 20.0)
 	mb.box("wall_warm", Vector3(-4, 0.2, -6), Vector3(4, 4.0, -4), 0.4, 20.0)
 	var mesh := mb.commit(mats, "res://tests/fixtures/mini_test_map_mesh.res", Vector2i(256, 256))
+	if mb.get_last_save_error() != OK:
+		return mb.get_last_save_error()
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	root.add_child(mi)
@@ -1048,7 +1123,12 @@ func _build_fixture() -> void:
 	_own(mi, root)
 	_own(we, root)
 	_own(anchors, root)
-	ResourceSaver.save(_pack(root), FIXTURE_SCENE)
+	var ps := _pack(root)
+	if ps == null:
+		return ERR_CANT_CREATE
+	var s_err := ResourceSaver.save(ps, FIXTURE_SCENE)
+	if s_err != OK:
+		return s_err
 	var def := MAP_DEF_SCRIPT.new()
 	def.map_id = "test_mini_map"
 	def.display_name = "极小测试地图（不进生产注册表）"
@@ -1058,5 +1138,8 @@ func _build_fixture() -> void:
 	def.camera_bounds = AABB(Vector3(-10, 1.5, -10), Vector3(20, 8, 20))
 	def.lighting_profile_id = "none"
 	def.available = true
-	ResourceSaver.save(def, FIXTURE_DEF)
+	var d_err := ResourceSaver.save(def, FIXTURE_DEF)
+	if d_err != OK:
+		return d_err
 	print("fixture saved")
+	return OK

@@ -320,7 +320,9 @@ class MeshBuilder:
 		return total
 
 	func commit(materials: Dictionary, path: String, lightmap_hint: Vector2i = Vector2i(512, 512)) -> ArrayMesh:
+		## 返回形态不变（C13-21）；保存失败记录在 last_save_error，由上层在必需输出上检查。
 		_flush()
+		last_save_error = OK
 		var mesh := ArrayMesh.new()
 		for key in _order:
 			var s: Dictionary = _surfs[key]
@@ -341,7 +343,16 @@ class MeshBuilder:
 			var err := ResourceSaver.save(mesh, path)
 			if err != OK:
 				push_error("GenLib: 网格保存失败 %s (err=%d)" % [path, err])
+				last_save_error = err
 		return mesh
+
+
+	## 最近一次 commit 的保存错误（只读查询，C13-21）；OK=成功，ERR_* = 失败。
+	var last_save_error: Error = OK
+
+
+	func get_last_save_error() -> Error:
+		return last_save_error
 
 
 ## ---------- 通用构件（世界坐标直接构建） ----------

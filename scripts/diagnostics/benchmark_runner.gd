@@ -1,6 +1,13 @@
-## 基准运行器（chapter1-1 §8.2 BenchmarkRunner 合同）。
+## 基准运行器（chapter1-3 §9 修正版）。
 ## 采样：单调实际时钟（Time.get_ticks_usec）逐帧记录；分位数 nearest-rank；
 ## 预热/稳态分段标记；正常 capped 运行保持节流，采样期失焦/最小化即中止并标记无效。
+## chapter1-3 修正：
+##  A. 报告只使用测量期冻结的 _measured_environment/_measured_map_state 快照（§9.2），
+##     不再读取恢复后的实时状态；
+##  B. headroom 结束由 restore_runtime_state 作为 FPS 唯一恢复权威（删除 _saved_max_fps）；
+##  C. 路线必须声明 map_id 且与当前 READY 地图一致（§10.4）；
+##  D. 输出目录/run_id 做路径安全校验（§9.4）；
+##  E. 输出记录 build_id（§9.5，环境变量 NEON_BUILD_ID，缺省 unknown 不伪造）。
 extends Node
 
 signal benchmark_started(run_id: String)
@@ -10,7 +17,10 @@ signal benchmark_aborted(run_id: String, reason: String)
 const OUTPUT_ROOT := "user://benchmarks"
 const SUMMARY_CSV := "user://benchmarks/summary.csv"
 
-const CSV_HEADER := "run_id,map_id,content_revision,route_id,profile_id,mode,valid,invalid_reason,engine_version,build_type,renderer,gpu_name,cpu_name,system_ram_mib,window_width,window_height,render_scale,frame_cap,vsync_mode,occlusion_enabled,sample_count,elapsed_seconds,average_fps,p50_ms,p95_ms,p99_ms,stutters_over_100ms,draw_calls_peak,visible_primitives_peak,map_node_count,process_working_set_mib_peak,process_private_bytes_mib_peak,engine_video_memory_mib_peak,os_gpu_memory_mib_peak,cpu_frame_ms_median,gpu_frame_ms_median,resource_load_ms,activation_ms,notes"
+const CSV_HEADER := "run_id,build_id,map_id,content_revision,route_id,profile_id,mode,valid,invalid_reason,engine_version,build_type,renderer,gpu_name,cpu_name,system_ram_mib,window_width,window_height,render_scale,frame_cap,vsync_mode,occlusion_enabled,sample_count,elapsed_seconds,average_fps,p50_ms,p95_ms,p99_ms,stutters_over_100ms,draw_calls_peak,visible_primitives_peak,map_node_count,process_working_set_mib_peak,process_private_bytes_mib_peak,engine_video_memory_mib_peak,os_gpu_memory_mib_peak,cpu_frame_ms_median,gpu_frame_ms_median,resource_load_ms,activation_ms,notes"
+
+## run_id 允许的安全字符集（§9.4）：禁止路径分隔符与 ..
+const RUN_ID_SAFE := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 
 var _guard: ActivityGuard = null
 var _map_manager = null
@@ -34,7 +44,11 @@ var _saved_quality: Dictionary = {}
 var _saved_ambient: Dictionary = {}
 var _saved_camera_pose: CameraPose = null
 var _saved_vsync: DisplayServer.VSyncMode = DisplayServer.VSYNC_ENABLED
-var _saved_max_fps := 30
+var _saved_occlusion := true
+## §9.2 measured snapshot：测量期首帧冻结，输出只读这两份，不受恢复影响。
+var _measured_environment: Dictionary = {}
+var _measured_map_state: Dictionary = {}
+var _measured_captured := false
 var _invalid_reason := ""
 
 
@@ -90,18 +104,20 @@ func start_run(config: Dictionary) -> Error:
 	_video_mem_peak = 0.0
 	_elapsed = 0.0
 	_phase = "warmup"
-	# 快照用户设置、相机和环境状态；禁用人工相机输入
+	_measured_captured = false
+	_measured_environment = {}
+	_measured_map_state = {}
+	# §9.2 开始流程：先快照用户 quality/camera/ambient/vsync/occlusion，再改测量环境
 	_saved_quality = _quality.capture_runtime_state()
 	_saved_camera_pose = _camera.get_pose()
-	var mm_state: Dictionary = _map_manager.get_map_ambient_state()
-	_saved_ambient = mm_state
+	_saved_ambient = _map_manager.get_map_ambient_state()
+	_saved_vsync = DisplayServer.window_get_vsync_mode()
+	_saved_occlusion = get_viewport().use_occlusion_culling
 	_camera.set_input_enabled(false)
 	if _main != null:
 		_main.set_automation_measure(true)  # 测量期间主循环不改节流（由本类负责失焦中止）
 	_quality.set_profile(StringName(str(_config["profile_id"])), false)
 	if str(_config.get("mode", "capped")) == "headroom":
-		_saved_vsync = DisplayServer.window_get_vsync_mode()
-		_saved_max_fps = Engine.max_fps
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		Engine.max_fps = 0
 	var occ := str(_config.get("occlusion_override", "default"))
@@ -110,6 +126,7 @@ func start_run(config: Dictionary) -> Error:
 		vp.use_occlusion_culling = true
 	elif occ == "off":
 		vp.use_occlusion_culling = false
+	# measured snapshot 在下一 process 帧设置稳定后冻结（§9.2 步骤 7–8）
 	_start_us = Time.get_ticks_usec()
 	_last_us = _start_us
 	_running = true
@@ -133,11 +150,23 @@ func _validate_config(config: Dictionary) -> Error:
 	if run_id.is_empty():
 		push_error("BenchmarkRunner: run_id 不能为空")
 		return ERR_INVALID_PARAMETER
+	# §9.4：run_id 只允许简短安全字符集，拒绝路径分隔符与 ..
+	for ch in run_id:
+		if not RUN_ID_SAFE.contains(ch):
+			push_error("BenchmarkRunner: run_id 含非法字符 %s" % str(ch))
+			return ERR_INVALID_PARAMETER
 	var profile_id := str(config.get("profile_id", ""))
 	if profile_id != "eco" and profile_id != "balanced":
 		return ERR_INVALID_PARAMETER
+	# §10.4：路线必须存在且声明适用地图；route_map_id != 当前 READY 地图 → 拒绝
 	var route_id := str(config.get("route_id", ""))
-	if not PerfRoutes.ROUTES.has(route_id):
+	if not PerfRoutes.has_route(route_id):
+		push_error("BenchmarkRunner: 路线不存在 %s（可用: %s）" % [route_id, ", ".join(PerfRoutes.ROUTE_SPECS.keys())])
+		return ERR_INVALID_PARAMETER
+	var current_map := String(_map_manager.get_current_map_id())
+	var route_map := PerfRoutes.route_map_id(route_id)
+	if route_map != current_map:
+		push_error("BenchmarkRunner: 路线 %s 适用地图 %s，当前 READY 地图为 %s" % [route_id, route_map, current_map])
 		return ERR_INVALID_PARAMETER
 	var mode := str(config.get("mode", "capped"))
 	if mode != "capped" and mode != "headroom":
@@ -150,15 +179,20 @@ func _validate_config(config: Dictionary) -> Error:
 		return ERR_INVALID_PARAMETER
 	if mode == "headroom" and (duration < 1.0 or duration > 60.0):
 		return ERR_INVALID_PARAMETER
+	# §10.4：capped 正式路线 route_duration 必须覆盖 60 秒
+	if mode == "capped" and PerfRoutes.route_duration(route_id) < duration - 0.001:
+		push_error("BenchmarkRunner: 路线 %s 总时长 %.0fs 覆盖不了 %.0fs" % [route_id, PerfRoutes.route_duration(route_id), duration])
+		return ERR_INVALID_PARAMETER
 	var warmup := float(config.get("warmup_seconds", 15.0))
 	if not is_finite(warmup) or warmup < 0.0 or warmup > 30.0:
 		return ERR_INVALID_PARAMETER
 	var occ := str(config.get("occlusion_override", "default"))
 	if occ != "default" and occ != "on" and occ != "off":
 		return ERR_INVALID_PARAMETER
-	var out_dir := str(config.get("output_directory", ""))
-	if not out_dir.begins_with(OUTPUT_ROOT):
-		push_error("BenchmarkRunner: 输出目录仅允许 %s 下" % OUTPUT_ROOT)
+	# §9.4：输出目录规范化后只允许 user://benchmarks 或其一级子目录，拒绝穿越
+	var out_dir := str(config.get("output_directory", "")).replace("\\", "/").simplify_path()
+	if out_dir != OUTPUT_ROOT and not out_dir.begins_with(OUTPUT_ROOT + "/") or out_dir.contains(".."):
+		push_error("BenchmarkRunner: 输出目录仅允许 %s 下（收到 %s）" % [OUTPUT_ROOT, out_dir])
 		return ERR_INVALID_PARAMETER
 	return OK
 
@@ -167,6 +201,11 @@ func _process(_delta: float) -> void:
 	if not _running:
 		set_process(false)
 		return
+	# §9.2 步骤 7–8：测量环境应用后等一帧稳定，冻结 measured snapshot
+	if not _measured_captured:
+		_measured_environment = _environment_info()
+		_measured_map_state = _map_manager.get_state_snapshot()
+		_measured_captured = true
 	var now_us := Time.get_ticks_usec()
 	var interval_ms := float(now_us - _last_us) / 1000.0
 	_last_us = now_us
@@ -206,6 +245,8 @@ func _process(_delta: float) -> void:
 
 
 func _finish(aborted: bool) -> void:
+	## §9.3 统一恢复顺序：停采样 → 内存定稿统计 → 恢复 VSync → restore_runtime_state
+	## （FPS 唯一权威）→ 恢复 occlusion → 相机/环境 → guard → 写文件（只用快照）→ emit。
 	set_process(false)
 	_running = false
 	var out_dir := str(_config.get("output_directory", OUTPUT_ROOT + "/run"))
@@ -215,13 +256,14 @@ func _finish(aborted: bool) -> void:
 	if valid and steady_count < 30:
 		valid = false
 		_invalid_reason = "有效稳态样本不足（%d < 30）" % steady_count
-	if _quality != null:
-		_quality.restore_runtime_state(_saved_quality)
+	var stats := _compute_stats()
 	if str(_config.get("mode", "capped")) == "headroom":
 		DisplayServer.window_set_vsync_mode(_saved_vsync)
-		Engine.max_fps = _saved_max_fps
-	var vp := get_viewport()
-	vp.use_occlusion_culling = true  # 恢复默认（非覆盖状态）
+	# 用户档位恢复：FPS 的唯一恢复权威；不再维护第二份 _saved_max_fps（§9.3）
+	if _quality != null:
+		_quality.restore_runtime_state(_saved_quality)
+	# 恢复进入 benchmark 前的实际 occlusion（恢复后的地图默认应与其一致）
+	get_viewport().use_occlusion_culling = _saved_occlusion
 	if _camera != null:
 		_camera.set_input_enabled(true)
 		if _saved_camera_pose != null:
@@ -233,8 +275,9 @@ func _finish(aborted: bool) -> void:
 	if _guard != null and _token != 0:
 		_guard.end(_token)
 		_token = 0
+	# 写输出：只使用测量期冻结的快照（§9.2 错误 A 修复）
 	var dir := out_dir.path_join(_run_id)
-	_write_outputs(dir, valid)
+	_write_outputs(dir, valid, stats)
 	if aborted or not valid:
 		benchmark_aborted.emit(_run_id, _invalid_reason if not _invalid_reason.is_empty() else "aborted")
 	else:
@@ -243,31 +286,31 @@ func _finish(aborted: bool) -> void:
 
 # ============================ 输出 ============================
 
-func _write_outputs(dir: String, valid: bool) -> void:
+func _write_outputs(dir: String, valid: bool, stats: Dictionary) -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
-	var stats := _compute_stats()
-	var env := _environment_info()
 	var run_json := {
 		"schema_version": 1,
 		"run_id": _run_id,
+		"build_id": _build_id(),
 		"config": _config,
 		"valid": valid,
 		"invalid_reason": _invalid_reason,
-		"environment": env,
-		"map_state": _map_manager.get_state_snapshot() if _map_manager != null else {},
+		"environment": _measured_environment,
+		"map_state": _measured_map_state,
 	}
 	_write_json(dir.path_join("run.json"), run_json)
 	_write_frames_csv(dir.path_join("frames.csv"))
 	var summary := {
 		"schema_version": 1,
 		"run_id": _run_id,
+		"build_id": _build_id(),
 		"valid": valid,
 		"invalid_reason": _invalid_reason,
 		"stats": stats,
-		"environment": env,
+		"environment": _measured_environment,
 	}
 	_write_json(dir.path_join("summary.json"), summary)
-	_append_summary_csv(valid, stats, env)
+	_append_summary_csv(valid, stats, _measured_environment)
 
 
 func _compute_stats() -> Dictionary:
@@ -308,6 +351,12 @@ static func _nearest_rank(sorted: PackedFloat64Array, q: float) -> float:
 	var idx := ceili(q * float(sorted.size())) - 1
 	idx = clampi(idx, 0, sorted.size() - 1)
 	return sorted[idx]
+
+
+func _build_id() -> String:
+	## §9.5：优先 NEON_BUILD_ID；为空记 unknown，不伪造 commit。
+	var env := OS.get_environment("NEON_BUILD_ID")
+	return env if not env.is_empty() else "unknown"
 
 
 func _write_json(path: String, data: Dictionary) -> void:
@@ -368,6 +417,13 @@ func _environment_info() -> Dictionary:
 
 func _append_summary_csv(valid: bool, stats: Dictionary, env: Dictionary) -> void:
 	DirAccess.make_dir_recursive_absolute(OUTPUT_ROOT)
+	# 表头变化时轮转旧表（CSV 为 append 结构，列不齐会污染后续解析）
+	if FileAccess.file_exists(SUMMARY_CSV):
+		var first := FileAccess.get_file_as_string(SUMMARY_CSV).get_slice("\n", 0)
+		if first.strip_edges() != CSV_HEADER:
+			var stamp := Time.get_datetime_string_from_system(true).replace(":", "").replace("-", "").replace(" ", "")
+			DirAccess.copy_absolute(SUMMARY_CSV, "%s/summary_pre_v13_%s.csv" % [OUTPUT_ROOT, stamp])
+			DirAccess.remove_absolute(SUMMARY_CSV)
 	var exists := FileAccess.file_exists(SUMMARY_CSV)
 	var f := FileAccess.open(SUMMARY_CSV, FileAccess.READ_WRITE if exists else FileAccess.WRITE)
 	if not exists:
@@ -378,6 +434,7 @@ func _append_summary_csv(valid: bool, stats: Dictionary, env: Dictionary) -> voi
 		content_revision = _map_manager.get_current_content_revision()
 	var cols := [
 		_run_id,
+		_build_id(),
 		String(_map_manager.get_current_map_id()) if _map_manager != null else "",
 		content_revision,
 		str(_config.get("route_id", "")),

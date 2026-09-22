@@ -272,6 +272,13 @@ func apply_quality(profile: Dictionary) -> Error:
 	return OK
 
 
+## 地图默认 occlusion（C13-06 §8.2 唯一权威）：定义缺失时回退工程默认 true。
+func get_occlusion_enabled() -> bool:
+	if definition != null:
+		return definition.occlusion_enabled
+	return bool(ProjectSettings.get_setting("rendering/occlusion_culling/use_occlusion_culling", true))
+
+
 ## 按持久化 meta 遍历（组缓存要等帧边界才可见，激活栈内查询会扑空——4.7 实测）。
 func _apply_detail_range_by_meta(node: Node, range_end: float) -> void:
 	if node is GeometryInstance3D and node.has_meta("node_groups"):

@@ -199,8 +199,10 @@ func set_map_entries(entries: Array) -> void:
 		menu_map_box.add_child(b)
 
 
-func set_bookmarks(entries: Array) -> void:
+func set_bookmarks(entries: Array, current_revision: String = "") -> void:
 	## entries: [{id, label, map_id, content_revision, created_utc}]
+	## §15 修订标签：entry revision == 当前地图 revision → 无标签；
+	## 非空且不同 → [旧 rX]；为空 → [旧 未知]（仍可加载，兼容风险提示交给 validate_pose）。
 	for child in bookmark_box.get_children():
 		bookmark_box.remove_child(child)
 		child.queue_free()
@@ -215,8 +217,10 @@ func set_bookmarks(entries: Array) -> void:
 		var bm_id: String = entry.get("id", "")
 		var rev: String = entry.get("content_revision", "")
 		var label_text: String = entry.get("label", "?")
-		if not rev.is_empty() and rev != "1.1.0":
-			label_text += " [r%s]" % rev  # 旧版本书签提示
+		if rev.is_empty():
+			label_text += " [旧 未知]"
+		elif rev != current_revision:
+			label_text += " [旧 r%s]" % rev
 		var load_btn := _new_button("▶ %s" % label_text)
 		load_btn.pressed.connect(func() -> void: bookmark_load_requested.emit(bm_id))
 		row.add_child(load_btn)
@@ -240,8 +244,9 @@ func set_anchor_hint(anchor_names: PackedStringArray, walk_mode: bool = false) -
 	if anchor_names.is_empty():
 		hint_label.text = "右键拖动观察 · WASD/QE 移动 · Shift 加速 · 滚轮调速\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签"
 		return
+	# §14.2：数字快捷键只有 1–9；超过 9 个的锚点不伪造数字键提示
 	var parts := PackedStringArray()
-	for i in anchor_names.size():
+	for i in mini(anchor_names.size(), 9):
 		parts.append("%d=%s" % [i + 1, anchor_names[i]])
 	hint_label.text = "%s\n%s\nF1 隐藏 UI · F2 诊断 · F12 截图 · Esc 菜单/书签" % [move_hint, " · ".join(parts)]
 

@@ -1,14 +1,19 @@
-# 构建入口：chapter1-1 制作/烘焙/验证/导出统一包装（chapter1-1 §9.1）。
+# 构建入口：chapter1-1/1-2 制作/烘焙/验证/导出统一包装（chapter1-3 §36 深化）。
 # 用法示例：
-#   .\tools\build_chapter11.ps1 -GodotExe 'D:\Godot\...\Godot_v4.7.2-stable_win64.exe' -ProjectPath . -Stage all -MapId m01_afterglow
+#   .\tools\build_chapter11.ps1 -GodotExe 'D:\Godot\...\Godot_v4.7.2-stable_win64.exe' -ProjectPath . -Stage all -MapId both -BuildId <sha-rc1> -ArtifactDir res://artifacts/chapter1_3
 # Godot 路径从 -GodotExe 参数或环境变量 NEON_GODOT 取得，不硬编码个人路径。
+# chapter1-3：MapId=both 顺序固定为"共享输入先稳定、street 先、interior 后"；
+# build_m01 前后做 authored ownership 指纹断言（生成器不得越界写精修层）；
+# Stage=export 独立入口必须先跑完整 verify；bake 报告目录由 -ArtifactDir 注入 NEON_ARTIFACT_DIR。
 param(
     [string]$GodotExe = $env:NEON_GODOT,
     [string]$ProjectPath = ".",
     [ValidateSet("validate", "generate", "assemble", "bake", "verify", "export", "all")]
     [string]$Stage = "all",
     [ValidateSet("m01_afterglow", "m01_repair_interior", "both")]
-    [string]$MapId = "m01_afterglow"
+    [string]$MapId = "m01_afterglow",
+    [string]$BuildId = "",
+    [string]$ArtifactDir = "res://artifacts/build"
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +29,19 @@ $ProjectPath = (Resolve-Path $ProjectPath).Path
 Set-Location $ProjectPath
 $G = $GodotExe
 
+if ([string]::IsNullOrWhiteSpace($BuildId)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:NEON_BUILD_ID)) { $BuildId = $env:NEON_BUILD_ID }
+    elseif (Test-Path ".git") {
+        $sha = git rev-parse --short HEAD 2>$null
+        if ($sha) { $BuildId = "$sha-local" } else { $BuildId = "local-" + (Get-Date -Format "yyyyMMddTHHmmss") }
+    } else { $BuildId = "local-" + (Get-Date -Format "yyyyMMddTHHmmss") }
+}
+$env:NEON_BUILD_ID = $BuildId
+if ($ArtifactDir -notmatch '^res://artifacts(/|$)') {
+    Write-Error "ArtifactDir 只允许 res://artifacts 下（收到 $ArtifactDir）"
+}
+Write-Host "BuildId = $BuildId  ArtifactDir = $ArtifactDir" -ForegroundColor DarkCyan
+
 function Invoke-Godot {
     param([string[]]$GodotArgs, [string]$Label)
     Write-Host "== $Label ==" -ForegroundColor Cyan
@@ -33,8 +51,33 @@ function Invoke-Godot {
     }
 }
 
+function Get-OwnershipFingerprint {
+    # C13-04：authored 所有权指纹。build_m01 前后必须一致（生成器不得越界写精修层）。
+    $paths = @()
+    if (Test-Path "maps/m01_afterglow/authored") { $paths += Get-ChildItem "maps/m01_afterglow/authored" -Recurse -File }
+    if (Test-Path "maps/m01_afterglow/meshes") {
+        $paths += Get-ChildItem "maps/m01_afterglow/meshes" -Recurse -File | Where-Object { $_.Name -like "authored_*" }
+    }
+    $acc = ""
+    foreach ($p in ($paths | Sort-Object FullName)) {
+        $hash = (Get-FileHash -LiteralPath $p.FullName -Algorithm SHA256).Hash
+        $rel = Resolve-Path -LiteralPath $p.FullName -Relative
+        $rel = $rel -replace '\\', '/'
+        $tscn = $rel -match '\.(tscn|tres)$'
+        if ($tscn) {
+            $text = [IO.File]::ReadAllText($p.FullName) -replace 'unique_id=\d+', ''
+            $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+            $sha = [Security.Cryptography.SHA256]::Create()
+            $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', ''
+        }
+        $acc += "$rel`:$hash;"
+    }
+    $md5 = [Security.Cryptography.MD5]::Create()
+    return [BitConverter]::ToString($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($acc))) -replace '-', ''
+}
+
 function Step-Validate {
-    # 校验引擎版本、字体、关键路径与规格结构
+    # §36 validate：引擎版本、注册表、画质配置、字体、BuildContract、导出预设、MapId 一致
     Write-Host "== validate ==" -ForegroundColor Cyan
     & $G --version | Tee-Object -Variable ver
     $expected = "4.7.2"
@@ -44,7 +87,22 @@ function Step-Validate {
     if (-not (Test-Path "assets/fonts/source/NotoSansSC-Regular.otf")) { throw "固定字体缺失（FIX-10）" }
     if (-not (Test-Path "data/map_registry.json")) { throw "地图注册表缺失" }
     if (-not (Test-Path "data/quality/eco.json") -or -not (Test-Path "data/quality/balanced.json")) { throw "画质配置缺失" }
-    if (-not (Test-Path "scripts/maps/map_manager.gd")) { throw "核心脚本缺失" }
+    foreach ($q in @("data/quality/eco.json", "data/quality/balanced.json")) {
+        try { Get-Content $q -Raw | ConvertFrom-Json | Out-Null } catch { throw "画质配置不可解析：$q" }
+    }
+    try { $reg = Get-Content "data/map_registry.json" -Raw | ConvertFrom-Json } catch { throw "注册表不可解析" }
+    if (-not $reg.maps -or $reg.maps.Count -lt 1) { throw "注册表 maps 为空" }
+    $regIds = @($reg.maps | ForEach-Object { $_.map_id })
+    if ($MapId -ne "both" -and $regIds -notcontains $MapId) { throw "MapId=$MapId 不在注册表内（$($regIds -join ',')）" }
+    if (-not (Test-Path "tools/build_contract.gd")) { throw "BuildContract 助手缺失" }
+    if (-not (Test-Path "tools/verify_build.gd")) { throw "verify_build 缺失" }
+    if (-not (Test-Path "export_presets.cfg")) { throw "导出预设缺失" }
+    & $G --headless --path $ProjectPath --check-only --script res://tools/build_contract.gd 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "BuildContract 不可加载" }
+    foreach ($m in $reg.maps) {
+        $defPath = $m.definition_path -replace '^res://', ''
+        if (-not (Test-Path $defPath)) { throw "注册表指向的定义缺失：$defPath" }
+    }
     Write-Host "validate 通过"
 }
 
@@ -54,12 +112,13 @@ function Get-MapIds {
 }
 
 function Step-Generate {
-    # 生成可重建层（保留 authored）：纹理 → 招牌（固定字体） → 城市生成层 → 精修层
-    # 街区图纹理/招牌共享；室内图只跑 build_interior（无 authored/signs 依赖）。
+    # §36 generate：共享输入先稳定；street 先（含 ownership 断言）、interior 后。
     foreach ($mid in Get-MapIds) {
         if ($mid -eq "m01_repair_interior") {
+            # 单独 interior：Validate 已确认其依赖的共享 materials/textures/signs 全部存在
             Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_interior.gd") "generate/interior"
-            continue
+            & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "导入失败" }
         }
     }
     if ((Get-MapIds) -contains "m01_afterglow") {
@@ -72,7 +131,13 @@ function Step-Generate {
         if ($LASTEXITCODE -ne 0) { throw "招牌生成失败" }
         if (($sout -join "`n") -notmatch "SIGNS_DONE") { throw "招牌生成未完成（未见 SIGNS_DONE）" }
         & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "导入失败" }
+        # C13-04：build_m01 前后 authored ownership 指纹必须一致
+        $pre = Get-OwnershipFingerprint
         Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_m01.gd") "generate/city"
+        $post = Get-OwnershipFingerprint
+        if ($pre -ne $post) { throw "authored 所有权指纹变化：build_m01 越界修改 authored（C13-04）" }
+        Write-Host "ownership 断言通过（authored 未被 build_m01 触碰）"
         Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tools/build_authored.gd") "generate/authored"
         & $G --headless --path $ProjectPath --import 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "导入失败" }
@@ -91,12 +156,13 @@ function Step-Assemble {
 
 function Step-Bake {
     # 真实图形编辑器中烘焙（addons/neon_bake 按钮）；NEON_BAKE_EXIT 判定结果
+    $env:NEON_ARTIFACT_DIR = $ArtifactDir
     foreach ($mid in Get-MapIds) {
         Write-Host "== bake $mid（编辑器内烘焙，最长 15 分钟） ==" -ForegroundColor Cyan
         & $G --path $ProjectPath --editor -- --auto-bake --scene "res://maps/$mid/map.tscn" 2>&1 | Tee-Object -Variable bout
         $outText = $bout -join "`n"
         if ($outText -match "NEON_BAKE_EXIT=(\d)") {
-            if ([int]$Matches[1] -ne 0) { throw "烘焙失败（NEON_BAKE_EXIT=$($Matches[1])），见 artifacts/chapter1_2/bake_report_*.json" }
+            if ([int]$Matches[1] -ne 0) { throw "烘焙失败（NEON_BAKE_EXIT=$($Matches[1])），见 $ArtifactDir/bake_report_*.json" }
         } else {
             throw "烘焙未给出结束标记（NEON_BAKE_EXIT 缺失）——编辑器可能仍打开，请检查"
         }
@@ -112,6 +178,7 @@ function Step-Verify {
     Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_map_lifecycle.gd") "verify/lifecycle"
     Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_chapter11_contract.gd") "verify/contract"
     Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_chapter12_contract.gd") "verify/contract12"
+    Invoke-Godot @("--headless", "--path", $ProjectPath, "--script", "res://tests/test_chapter13_contract.gd") "verify/contract13"
 }
 
 function Step-Export {
@@ -123,20 +190,26 @@ function Step-Export {
     Write-Host "导出完成：build/windows/neon_haven.exe (+ .pck)"
 }
 
+$verifiedThisRun = $false
 switch ($Stage) {
     "validate" { Step-Validate }
     "generate" { Step-Validate; Step-Generate }
     "assemble" { Step-Assemble }
     "bake"     { Step-Bake }
-    "verify"   { Step-Verify }
-    "export"   { Step-Export }
+    "verify"   { Step-Verify; $verifiedThisRun = $true }
+    "export"   {
+        # 独立 export 必须先过完整 verify（§36）：不允许跳过门槛直接导出
+        Step-Verify
+        Step-Export
+    }
     "all"      {
         Step-Validate
         Step-Generate
         Step-Assemble
         Step-Bake
         Step-Verify
+        $verifiedThisRun = $true
         Step-Export
     }
 }
-Write-Host "BUILD_CHAPTER11[$Stage] DONE" -ForegroundColor Green
+Write-Host "BUILD_CHAPTER11[$Stage] DONE (BuildId=$BuildId)" -ForegroundColor Green

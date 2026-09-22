@@ -57,6 +57,10 @@
     4.5,
     11.2
   ],
+  "build_stats": {
+    "backdrop_tris": 376,
+    "static_tris": 3970
+  },
   "camera_mode": "walk",
   "content_revision": "1.2.0",
   "default_anchor": "entry_view",

@@ -16,7 +16,9 @@ var _quality = null           # settings_manager.gd
 var _camera = null            # camera_controller.gd
 var _build_id := ""
 var _busy := false
-var _request_id := 0
+var _active_id := 0           # 当前请求上下文（C13-15 §17.2：收敛到字段，不再散落局部变量）
+var _active_token := 0
+var _saved_ui: Dictionary = {}
 var _next_request_id := 1
 var _last_capture_msec := -100000
 
@@ -34,10 +36,14 @@ func is_busy() -> bool:
 
 
 func abort_capture(reason: String) -> void:
-	## 使当前请求失效；进行中的异步步骤在下一个继续点安全退出。
-	if _busy:
-		_request_id = 0
-		push_warning("CaptureService: 截图中止 (%s)" % reason)
+	## §17.2：立即取消并走统一 finish（恢复 UI/输入、释放 guard、_busy=false、
+	## failed 只发一次）；不依赖"下一帧一定会到来"。已挂起的旧 continuation
+	## 恢复后只看到 request 已失效并 return，不能再次 cleanup/emit。
+	if not _busy or _active_id == 0:
+		return
+	var rid := _active_id
+	push_warning("CaptureService: 截图中止 (%s)" % reason)
+	_finish(rid, ERR_UNAVAILABLE, "截图已中止: %s" % reason, "", "")
 
 
 ## 受理一次截图请求。忙碌/节流返回 ERR_BUSY；非法标签返回 ERR_INVALID_PARAMETER。
@@ -57,69 +63,75 @@ func request_capture(label: String = "") -> Error:
 		token = _guard.try_begin(ActivityGuard.KIND_CAPTURE)
 		if token == 0:
 			return ERR_BUSY
-	_request_id = _next_request_id
+	var request_id := _next_request_id
 	_next_request_id += 1
 	_last_capture_msec = now
-	_run_capture(_request_id, safe_label, token)
+	_run_capture(request_id, safe_label, token)
 	return OK
 
 
 func _run_capture(request_id: int, label: String, token: int) -> void:
 	_busy = true
-	var saved_state := _save_ui_state()
+	_active_id = request_id
+	_active_token = token
+	_saved_ui = _save_ui_state()
 	_apply_ui_state(false)
-	var failure := {"err": OK, "msg": ""}
 	for i in 2:
 		await RenderingServer.frame_post_draw
-		if not _is_current(request_id):
-			_cleanup(saved_state, token, false)
-			return
-	var img: Image = null
-	if not _is_current(request_id):
-		_cleanup(saved_state, token, false)
-		return
-	img = get_viewport().get_texture().get_image()
+		if not _is_active(request_id):
+			return  # abort 已统一收尾；旧 continuation 只能退出
+	var img := get_viewport().get_texture().get_image()
 	if img == null or img.is_empty():
-		failure = {"err": ERR_CANT_CREATE, "msg": "视口图像不可用（headless 无 GPU 渲染结果）"}
-	if failure.err == OK:
-		DirAccess.make_dir_recursive_absolute(OUT_DIR)
-		var stamp := Time.get_datetime_string_from_system(false, true)
-		stamp = stamp.replace(":", "").replace("-", "").replace("T", "_").replace(" ", "")
-		var base := "cap_%s_%s" % [stamp, str(request_id)]
-		if not label.is_empty():
-			base = "%s_%s" % [label, base]
-		var png_path := "%s/%s.png" % [OUT_DIR, base]
-		var json_path := "%s/%s.json" % [OUT_DIR, base]
-		var png_err := img.save_png(png_path)
-		if png_err != OK:
-			failure = {"err": png_err, "msg": "PNG 写盘失败 (err=%d)" % png_err}
-		else:
-			var meta := _build_metadata(request_id, label, img)
-			var jf := FileAccess.open(json_path, FileAccess.WRITE)
-			if jf == null:
-				failure = {"err": ERR_CANT_OPEN, "msg": "元数据写盘失败"}
-			else:
-				jf.store_string(JSON.stringify(meta, "  "))
-				jf.close()
-				if FileAccess.file_exists(json_path):
-					# PNG 与 JSON 都成功才发完成信号
-					_cleanup(saved_state, token, true)
-					_busy = false
-					capture_completed.emit(request_id, png_path, json_path)
-					return
-				failure = {"err": ERR_CANT_OPEN, "msg": "元数据校验失败"}
-		# 半成品清理：删本次文件，不动既有文件
-		if failure.err != OK:
-			DirAccess.remove_absolute(png_path)
-			DirAccess.remove_absolute(json_path)
-	_cleanup(saved_state, token, true)
+		_finish(request_id, ERR_CANT_CREATE, "视口图像不可用（headless 无 GPU 渲染结果）", "", "")
+		return
+	DirAccess.make_dir_recursive_absolute(OUT_DIR)
+	var stamp := Time.get_datetime_string_from_system(false, true)
+	stamp = stamp.replace(":", "").replace("-", "").replace("T", "_").replace(" ", "")
+	var base := "cap_%s_%s" % [stamp, str(request_id)]
+	if not label.is_empty():
+		base = "%s_%s" % [label, base]
+	var png_path := "%s/%s.png" % [OUT_DIR, base]
+	var json_path := "%s/%s.json" % [OUT_DIR, base]
+	var png_err := img.save_png(png_path)
+	if png_err != OK:
+		_finish(request_id, png_err, "PNG 写盘失败 (err=%d)" % png_err, "", "")
+		return
+	var meta := _build_metadata(request_id, label, img)
+	var jf := FileAccess.open(json_path, FileAccess.WRITE)
+	if jf == null:
+		DirAccess.remove_absolute(png_path)
+		_finish(request_id, ERR_CANT_OPEN, "元数据写盘失败", "", "")
+		return
+	jf.store_string(JSON.stringify(meta, "  "))
+	jf.close()
+	if not FileAccess.file_exists(json_path):
+		DirAccess.remove_absolute(png_path)
+		DirAccess.remove_absolute(json_path)
+		_finish(request_id, ERR_CANT_OPEN, "元数据校验失败", "", "")
+		return
+	_finish(request_id, OK, "", png_path, json_path)
+
+
+func _is_active(request_id: int) -> bool:
+	return _busy and _active_id == request_id
+
+
+## §17.2 统一幂等 finish：恢复 UI/输入、释放 guard、清上下文、_busy=false、
+## 成功发 completed（一次）、失败/取消发 failed（一次）。半成品文件由调用方清理。
+func _finish(request_id: int, err: Error, msg: String, png_path: String, json_path: String) -> void:
+	if not _busy or _active_id != request_id:
+		return  # 已被 abort 等路径收尾；不得二次 cleanup/emit
+	_apply_ui_state(true, _saved_ui)
+	if _guard != null and _active_token != 0:
+		_guard.end(_active_token)
 	_busy = false
-	if failure.err != OK:
-		capture_failed.emit(request_id, failure.err, failure.msg)
-
-
-func _is_current(request_id: int) -> bool:
-	return _busy and _request_id == request_id
+	_active_id = 0
+	_active_token = 0
+	_saved_ui = {}
+	if err == OK:
+		capture_completed.emit(request_id, png_path, json_path)
+	else:
+		capture_failed.emit(request_id, err, msg)
 
 
 ## 保存/恢复 UI 与输入状态；只恢复被保存过状态的项，不强制全部 visible=true。
@@ -148,17 +160,6 @@ func _apply_ui_state(show: bool, saved: Dictionary = {}) -> void:
 			(node as CanvasItem).visible = false
 	if _camera != null:
 		_camera.enabled = false
-
-
-func _cleanup(saved: Dictionary, token: int, restore: bool) -> void:
-	## 幂等清理：恢复状态、释放 token。失败路径与成功路径共用。
-	if restore:
-		_apply_ui_state(true, saved)
-	else:
-		# 无效请求：也恢复先前状态（避免 UI 永久隐藏/输入锁死）
-		_apply_ui_state(true, saved)
-	if _guard != null and token != 0:
-		_guard.end(token)
 
 
 func _sanitize_label(label: String) -> String:

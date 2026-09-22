@@ -188,6 +188,18 @@ func go_to_anchor(anchor_name: String) -> bool:
 	return apply_pose(_anchor_poses[key], true) == OK
 
 
+## §14.1 公开锚点接口：外部（Main/UI/自动化）禁止直接读 _anchor_order。
+func get_anchor_order() -> PackedStringArray:
+	return _anchor_order.duplicate()
+
+
+## §14.2 数字键 1–9 统一入口：index 在当前锚点数组内 → 切换；超界 no-op。
+func go_to_anchor_index(index: int) -> bool:
+	if index < 0 or index >= _anchor_order.size():
+		return false
+	return go_to_anchor(_anchor_order[index])
+
+
 func go_to_default_anchor() -> bool:
 	if _default_anchor == &"":
 		return false

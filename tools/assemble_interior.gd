@@ -1,12 +1,13 @@
-## m01_repair_interior「余晖维修·店内」最终组装（chapter1-2 §6）。
+## m01_repair_interior「余晖维修·店内」最终组装（chapter1-3 §3 + manifest v2）。
 ## 运行：godot --headless --path . --script res://tools/assemble_interior.gd
 ## 职责：展平嵌入 interior_generated → map.tscn（BakedWorld/Backdrop/Environment/
-##       CameraAnchors/Ambient/PortalDoors）；写 v2 定义（walk/portals）与构建清单指纹。
-## 规则同 assemble_m01：LightmapGI 子树内不放 PackedScene 实例（X2 复制问题），
-## owner 不进实例内部；烘焙数据落 baked/map_lightmap.res。
+##       CameraAnchors/Ambient/PortalDoors）；写 v2 定义（walk/portals）与 manifest v2。
+## 规则同 assemble_m01：assemble 不再无条件清空烘焙数据（C13-01）；
+## 必需输出 Error 必须传播（C13-21）；owner 不进实例内部。
 extends SceneTree
 
 const MAP_DEF_SCRIPT := preload("res://scripts/maps/map_definition.gd")
+const BC := preload("res://tools/build_contract.gd")
 
 const MAP_DIR := "res://maps/m01_repair_interior"
 const GEN_SPEC := MAP_DIR + "/generated/interior_spec.json"
@@ -14,7 +15,11 @@ const GEN_SCENE := MAP_DIR + "/generated/interior_generated.tscn"
 const MAP_SCENE := MAP_DIR + "/map.tscn"
 const MAP_DEF := MAP_DIR + "/map_definition.tres"
 const MANIFEST_PATH := MAP_DIR + "/build_manifest.json"
-const FONT_SOURCE := "res://assets/fonts/source/NotoSansSC-Regular.otf"
+const BAKED_DATA := MAP_DIR + "/baked/map_lightmap.res"
+## bake_source_roots（§2.3）
+const BAKE_SOURCE_ROOTS: PackedStringArray = [
+	"res://maps/m01_repair_interior/generated/interior_generated.tscn",
+]
 
 var spec: Dictionary = {}
 
@@ -25,9 +30,9 @@ func _init() -> void:
 
 func _run() -> void:
 	print("=== assemble m01_repair_interior ===")
-	spec = _load_json(GEN_SPEC)
+	spec = BC.load_json_dict(GEN_SPEC)
 	if spec.is_empty():
-		push_error("室内规格缺失，先运行 build_interior.gd")
+		push_error("室内规格缺失或不可解析，先运行 build_interior.gd")
 		quit(1)
 		return
 	if not ResourceLoader.exists(GEN_SCENE):
@@ -36,6 +41,51 @@ func _run() -> void:
 		return
 
 	var root := _build_map()
+	var lm: LightmapGI = BC.find_lightmap(root)
+	var expected := BC.expected_bake_users(root)
+	var signature := BC.compute_bake_signature(BAKE_SOURCE_ROOTS, root)
+	if str(signature.get("bake_input_hash", "")) == "":
+		push_error("bake 输入签名计算失败：LightmapGI 缺失")
+		quit(1)
+		return
+	var prev := BC.load_json_dict(MANIFEST_PATH)
+	var reuse := BC.can_reuse_bake(prev, BAKE_SOURCE_ROOTS, str(signature.get("bake_input_hash", "")), expected, BAKED_DATA)
+	var actual: Array[String] = []
+	if reuse:
+		var fresh := BC.load_resource_fresh(BAKED_DATA, "LightmapGIData") as LightmapGIData
+		if fresh == null:
+			push_error("可复用分支 fresh-load 烘焙数据失败")
+			quit(1)
+			return
+		lm.light_data = fresh
+		var probe := LightmapGI.new()
+		probe.light_data = fresh
+		actual = BC.actual_bake_users(probe)
+		print("ASSEMBLE: 复用有效烘焙数据 users=%d" % actual.size())
+	else:
+		# 先持久化 pending/stale，成功后才允许清空烘焙数据（§3.2）
+		var status := "pending" if prev.is_empty() else "stale"
+		if not prev.is_empty() and int(prev.get("schema_version", 0)) == 1:
+			status = "stale"
+		var m_err := _write_manifest_state(status, signature, expected, [], "", "")
+		if m_err != OK:
+			push_error("预失效清单写入失败 err=%d，保持旧烘焙数据不动" % m_err)
+			quit(1)
+			return
+		DirAccess.make_dir_recursive_absolute(BAKED_DATA.get_base_dir())
+		var empty := LightmapGIData.new()
+		if ResourceSaver.save(empty, BAKED_DATA) != OK:
+			push_error("空 LightmapGIData 保存失败")
+			quit(1)
+			return
+		var fresh := BC.load_resource_fresh(BAKED_DATA, "LightmapGIData") as LightmapGIData
+		if fresh == null:
+			push_error("空烘焙数据 fresh-load 失败")
+			quit(1)
+			return
+		lm.light_data = fresh
+		print("ASSEMBLE: 烘焙数据已失效（%s），等待重烘" % status)
+
 	var ps := PackedScene.new()
 	_set_all_owners(root, root)
 	var err := ps.pack(root)
@@ -44,9 +94,21 @@ func _run() -> void:
 		quit(1)
 		return
 	err = ResourceSaver.save(ps, MAP_SCENE)
+	if err != OK:
+		push_error("map.tscn 保存失败: %d" % err)
+		quit(1)
+		return
 	print("map.tscn saved: ", err)
-	_save_definition()
-	_write_manifest()
+	if _save_definition() != OK:
+		quit(1)
+		return
+	if reuse:
+		var m_err := _write_manifest_state("succeeded", signature, expected, actual,
+			str(prev.get("bake_job_id", "")), str(prev.get("bake_finished_utc", "")))
+		if m_err != OK:
+			push_error("复用分支清单写入失败 err=%d" % m_err)
+			quit(1)
+			return
 	print("ASSEMBLE_INTERIOR_DONE")
 	quit(0)
 
@@ -56,14 +118,9 @@ func _build_map() -> Node3D:
 	root.name = "M01RepairInterior"
 	root.set_script(load("res://scripts/maps/map_root.gd"))
 
-	# BakedWorld = LightmapGI（预存空数据；烘焙有效性由清单指纹判定）
+	# BakedWorld = LightmapGI（不在此写烘焙数据；由 can_reuse_bake 分支决定，C13-01）
 	var lm := LightmapGI.new()
 	lm.name = "BakedWorld"
-	const BAKED_DATA := "res://maps/m01_repair_interior/baked/map_lightmap.res"
-	DirAccess.make_dir_recursive_absolute(BAKED_DATA.get_base_dir())
-	var fresh := LightmapGIData.new()
-	if ResourceSaver.save(fresh, BAKED_DATA) == OK:
-		lm.light_data = load(BAKED_DATA)
 	root.add_child(lm)
 
 	# 展平嵌入生成场景：StaticGeometry/Lighting/PortalDoors 入 LightmapGI 子树，
@@ -201,7 +258,7 @@ func _build_environment() -> WorldEnvironment:
 
 # ============================ 定义 ============================
 
-func _save_definition() -> void:
+func _save_definition() -> Error:
 	var def := MAP_DEF_SCRIPT.new()
 	def.schema_version = 2
 	def.map_id = "m01_repair_interior"
@@ -243,77 +300,47 @@ func _save_definition() -> void:
 		})
 	def.portals = portals
 	var err := ResourceSaver.save(def, MAP_DEF)
+	if err != OK:
+		push_error("map_definition.tres 保存失败: %d" % err)
+		return err
 	print("definition saved: ", err, " anchors=", anchor_ids.size(),
 		" exclusions=", exclusions.size(), " walk=", walks.size(), " portals=", portals.size())
+	return OK
 
 
-# ============================ 构建清单 ============================
+# ============================ manifest v2（§2.5） ============================
 
-func _write_manifest() -> void:
-	var files := [
-		"maps/m01_repair_interior/generated/interior_generated.tscn",
-		"maps/m01_repair_interior/meshes/interior_static.res",
-		"maps/m01_repair_interior/meshes/interior_glass.res",
-		"maps/m01_repair_interior/meshes/interior_backdrop.res",
-		"maps/m01_repair_interior/meshes/interior_door_leaf.res",
-	]
-	var combined := _hash_files(files)
-	var font_hash := ""
-	if FileAccess.file_exists(FONT_SOURCE):
-		font_hash = FileAccess.get_sha256(FONT_SOURCE)
-	var prev := _load_json(MANIFEST_PATH)
-	var bake_status := "pending"
-	var bake_job_id := ""
-	var actual: Array = prev.get("actual_baked_user_paths", []) if str(prev.get("geometry_input_hash", "")) == combined else []
-	if str(prev.get("geometry_input_hash", "")) == combined and str(prev.get("bake_status", "")) == "succeeded":
-		bake_status = "succeeded"
-		bake_job_id = str(prev.get("bake_job_id", ""))
-	elif not prev.is_empty():
-		bake_status = "stale"
+func _write_manifest_state(status: String, signature: Dictionary, expected: Array[String],
+		actual: Array[String], job_id: String, finished_utc: String) -> Error:
+	## 唯一的 v2 清单写入口：可恢复替换（write_json_recoverable），调用方必须检查 Error。
+	var actual_arr: Array = []
+	for p in actual:
+		actual_arr.append(p)
 	var manifest := {
-		"schema_version": 1,
+		"schema_version": 2,
 		"map_id": "m01_repair_interior",
 		"content_revision": str(spec.get("content_revision", "1.2.0")),
 		"engine_version": str(Engine.get_version_info().get("string", "")),
 		"build_id": _build_id(),
-		"geometry_input_hash": combined,
-		"lighting_input_hash": combined,
-		"authored_input_hash": "",
-		"font_source_hash": font_hash,
-		"bake_job_id": bake_job_id,
-		"bake_status": bake_status,
-		"expected_baked_user_paths": [],
-		"actual_baked_user_paths": actual,
+		"bake_source_roots": BAKE_SOURCE_ROOTS,
+		"bake_input_hash": str(signature.get("bake_input_hash", "")),
+		"bake_input_files": signature.get("bake_input_files", []),
+		"bake_settings": signature.get("bake_settings", {}),
+		"environment_snapshot": signature.get("environment_snapshot", {}),
+		"bake_job_id": job_id,
+		"bake_status": status,
+		"expected_baked_user_paths": expected,
+		"actual_baked_user_paths": actual_arr,
+		"missing_baked_user_paths": [],
+		"bake_finished_utc": finished_utc,
 		"outputs": [],
 	}
-	var f := FileAccess.open(MANIFEST_PATH, FileAccess.WRITE)
-	f.store_string(JSON.stringify(manifest, "  "))
-	f.close()
-	print("manifest saved: ", MANIFEST_PATH)
-
-
-func _hash_files(paths: Array) -> String:
-	## 文件清单指纹：路径 + 内容哈希串联后再哈希。清单自身与烘焙输出不入列（避免循环依赖）。
-	var acc := ""
-	for p in paths:
-		var rel: String = str(p).trim_prefix("res://")
-		if not FileAccess.file_exists(str(p)):
-			acc += rel + ":missing;"
-			continue
-		acc += rel + ":" + _stable_sha(str(p)) + ";"
-	return acc.sha256_text()
-
-
-func _stable_sha(path: String) -> String:
-	## .tscn/.tres 剥离 Godot 4.7 保存时随机生成的节点 unique_id=NNN 再哈希；
-	## 其余文件按原始字节。否则几何未变指纹也会漂移，清单永远 stale（1.2 修复）。
-	if path.ends_with(".tscn") or path.ends_with(".tres"):
-		var f := FileAccess.open(path, FileAccess.READ)
-		if f != null:
-			var txt := f.get_as_text()
-			f.close()
-			return RegEx.create_from_string("unique_id=\\d+").sub(txt, "", true).sha256_text()
-	return FileAccess.get_sha256(path)
+	var err := BC.write_json_recoverable(MANIFEST_PATH, manifest)
+	if err == OK:
+		print("manifest saved: ", MANIFEST_PATH, " status=", status)
+	else:
+		push_error("manifest 可恢复替换失败 err=%d" % err)
+	return err
 
 
 func _build_id() -> String:
@@ -324,13 +351,6 @@ func _build_id() -> String:
 
 
 # ============================ 辅助 ============================
-
-func _load_json(path: String) -> Dictionary:
-	if not FileAccess.file_exists(path):
-		return {}
-	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
-	return parsed if parsed is Dictionary else {}
-
 
 func _v3(arr: Variant) -> Vector3:
 	if arr is Array and arr.size() >= 3:

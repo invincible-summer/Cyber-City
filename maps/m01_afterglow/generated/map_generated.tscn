@@ -628,31 +628,31 @@ _surfaces = [{
 "vertex_data": PackedByteArray("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H3fZQRTFlUBt5+9BH3fZQbCJlkCTGPBBH3fZQRTFlUCTGPBBH3fZQRTFlUBt5+9BH3fZQbCJlkBt5+9BH3fZQbCJlkCTGPBBT4nkQZotmUBt5/dBT4nkQTbymUCTGPhBT4nkQZotmUCTGPhBT4nkQZotmUBt5/dBT4nkQTbymUBt5/dBT4nkQTbymUCTGPhBnTvyQZotmUCTGPhBnTvyQTbymUBt5/dBnTvyQZotmUBt5/dBnTvyQZotmUCTGPhBnTvyQTbymUCTGPhBnTvyQTbymUBt5/dB/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+///////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA/38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//3///wAA/7//f///AAD/v/9///8AAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//38AAAAA/7//fwAAAAD/v/9/AAAAAP+//3//f/9/AID/f/9//38AgP9//3//fwCA/3//f/9/AID/f/9//38AgP9//3//fwCA//////9/AID//////38AgP//////fwCA//////9/AID//////38AgP//////fwCA////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/AAD/f/9//78AAP9//3//vwAA/3//f/+/////f/9//7////9//3//v////3//f/+/////f/9//7////9//3//v////3//f/+/")
 }]
 
-[node name="M01Generated" type="Node3D" unique_id=827116678]
+[node name="M01Generated" type="Node3D" unique_id=347237410]
 
-[node name="BakedWorld" type="Node3D" parent="." unique_id=125755685]
+[node name="BakedWorld" type="Node3D" parent="." unique_id=1840921755]
 
-[node name="StaticGeometry" type="Node3D" parent="BakedWorld" unique_id=324199375]
+[node name="StaticGeometry" type="Node3D" parent="BakedWorld" unique_id=56141729]
 
-[node name="BakedStatic" type="MeshInstance3D" parent="BakedWorld/StaticGeometry" unique_id=173791553]
+[node name="BakedStatic" type="MeshInstance3D" parent="BakedWorld/StaticGeometry" unique_id=2062101107]
 mesh = SubResource("ArrayMesh_akbut")
 
-[node name="Props" type="Node3D" parent="BakedWorld" unique_id=284747273]
+[node name="Props" type="Node3D" parent="BakedWorld" unique_id=2066652040]
 
-[node name="BakedProps" type="MeshInstance3D" parent="BakedWorld/Props" unique_id=1510899573]
+[node name="BakedProps" type="MeshInstance3D" parent="BakedWorld/Props" unique_id=859253636]
 mesh = SubResource("ArrayMesh_37s8o")
 metadata/node_groups = PackedStringArray("detail_props")
 
-[node name="Lighting" type="Node3D" parent="BakedWorld" unique_id=1509451500]
+[node name="Lighting" type="Node3D" parent="BakedWorld" unique_id=1019081484]
 
-[node name="DuskSun" type="DirectionalLight3D" parent="BakedWorld/Lighting" unique_id=2038695955]
+[node name="DuskSun" type="DirectionalLight3D" parent="BakedWorld/Lighting" unique_id=791711601]
 transform = Transform3D(-0.60971075, 0.18780397, -0.7700535, 0, 0.97152436, 0.23693955, 0.792624, 0.1444646, -0.5923489, 0, 0, 0)
 light_color = Color(1, 0.71, 0.5, 1)
 light_energy = 2.9
 light_bake_mode = 1
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@2" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1366020502]
+[node name="@OmniLight3D@2" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1116281996]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2, 1.9, 48)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -660,7 +660,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@3" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1324318981]
+[node name="@OmniLight3D@3" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=191805737]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2, 1.9, 30)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -668,7 +668,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@4" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=661729134]
+[node name="@OmniLight3D@4" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=230916211]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2, 1.9, 12)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -676,7 +676,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@5" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1408431446]
+[node name="@OmniLight3D@5" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1051803737]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2, 1.9, -17.5)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -684,7 +684,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@6" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1968985201]
+[node name="@OmniLight3D@6" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1150614740]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13.2, 1.9, -10.5)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -692,7 +692,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@7" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=383988336]
+[node name="@OmniLight3D@7" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1096004130]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.2, 1.9, 49)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -700,7 +700,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@8" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1667110216]
+[node name="@OmniLight3D@8" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=400237272]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.2, 1.9, 7)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -708,7 +708,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@9" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=43736217]
+[node name="@OmniLight3D@9" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=652228716]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.2, 1.9, -23.5)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 4.0
@@ -716,7 +716,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@10" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=2070052255]
+[node name="@OmniLight3D@10" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1597767983]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10.8, 5, -18)
 light_color = Color(0.9, 0.7, 0.85, 1)
 light_energy = 1.1
@@ -724,7 +724,7 @@ light_bake_mode = 1
 omni_range = 3.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@11" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1938305906]
+[node name="@OmniLight3D@11" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1818037988]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 34.5, 2.6, 25.5)
 light_color = Color(1, 0.78, 0.5, 1)
 light_energy = 2.2
@@ -732,7 +732,7 @@ light_bake_mode = 1
 omni_range = 10.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@12" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=504293285]
+[node name="@OmniLight3D@12" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=642470139]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 34.2, 2.6, 33)
 light_color = Color(1, 0.72, 0.45, 1)
 light_energy = 1.8
@@ -740,7 +740,7 @@ light_bake_mode = 1
 omni_range = 9.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@13" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=394184722]
+[node name="@OmniLight3D@13" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1999113936]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31.8, 4.9, 27.5)
 light_color = Color(1, 0.68, 0.4, 1)
 light_energy = 2.2
@@ -748,7 +748,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@14" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=870380870]
+[node name="@OmniLight3D@14" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=151673474]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8.2, -59)
 light_color = Color(0.5, 0.88, 0.85, 1)
 light_energy = 2.6
@@ -756,7 +756,7 @@ light_bake_mode = 1
 omni_range = 8.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@15" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1070968707]
+[node name="@OmniLight3D@15" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=170010961]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.55, 4.95, -45)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -764,7 +764,7 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@16" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=170661612]
+[node name="@OmniLight3D@16" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1951232930]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.55, 4.95, -27)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -772,7 +772,7 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@17" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=581665150]
+[node name="@OmniLight3D@17" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=833890428]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.55, 4.95, -9)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -780,7 +780,7 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@18" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=848073165]
+[node name="@OmniLight3D@18" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1975653021]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.55, 4.95, 9)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -788,7 +788,7 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@19" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=205892559]
+[node name="@OmniLight3D@19" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=396834049]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.55, 4.95, 27)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -796,7 +796,7 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@20" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=21310021]
+[node name="@OmniLight3D@20" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=651105843]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7.55, 4.95, 45)
 light_color = Color(1, 0.78, 0.52, 1)
 light_energy = 5.5
@@ -804,14 +804,14 @@ light_bake_mode = 1
 omni_range = 11.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@21" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1631601972]
+[node name="@OmniLight3D@21" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=2083142418]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21.3, 3.3, 5.6)
 light_color = Color(1, 0.8, 0.55, 1)
 light_energy = 1.8
 light_bake_mode = 1
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@22" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1123575312]
+[node name="@OmniLight3D@22" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1979746905]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14, 3, 36.5)
 light_color = Color(1, 0.74, 0.48, 1)
 light_energy = 2.4
@@ -819,7 +819,7 @@ light_bake_mode = 1
 omni_range = 6.5
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@23" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1200792124]
+[node name="@OmniLight3D@23" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=407652105]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 3.4, 26)
 light_color = Color(1, 0.68, 0.44, 1)
 light_energy = 2.0
@@ -827,7 +827,7 @@ light_bake_mode = 1
 omni_range = 10.0
 metadata/node_groups = PackedStringArray("bake_only_light")
 
-[node name="@OmniLight3D@24" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=2088272590]
+[node name="@OmniLight3D@24" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1822893175]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30.8, 2.4, 25.8)
 visible = false
 light_color = Color(1, 0.76, 0.5, 1)
@@ -835,7 +835,7 @@ light_energy = 2.2
 omni_range = 5.5
 metadata/node_groups = PackedStringArray("runtime_fill_light")
 
-[node name="@OmniLight3D@25" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=132557014]
+[node name="@OmniLight3D@25" type="OmniLight3D" parent="BakedWorld/Lighting" unique_id=1253310792]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 21, 2.6, -57.5)
 visible = false
 light_color = Color(0.6, 0.85, 0.9, 1)
@@ -843,13 +843,13 @@ light_energy = 1.6
 omni_range = 7.0
 metadata/node_groups = PackedStringArray("runtime_fill_light")
 
-[node name="@ReflectionProbe@26" type="ReflectionProbe" parent="BakedWorld/Lighting" unique_id=1011881017]
+[node name="@ReflectionProbe@26" type="ReflectionProbe" parent="BakedWorld/Lighting" unique_id=1208885878]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 22, 2.2, 26)
 visible = false
 size = Vector3(18, 6, 18)
 metadata/node_groups = PackedStringArray("optional_probe")
 
-[node name="@ReflectionProbe@27" type="ReflectionProbe" parent="BakedWorld/Lighting" unique_id=8476676]
+[node name="@ReflectionProbe@27" type="ReflectionProbe" parent="BakedWorld/Lighting" unique_id=736293989]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, -18)
 visible = false
 size = Vector3(24, 7, 30)
