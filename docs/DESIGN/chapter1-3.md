@@ -83,6 +83,7 @@ P1/P2 收口：
 - C13-18：最终证据引用被 gitignore 排除的 log，v9 PNG 与 JSON 未完整配对。
 - C13-19：expanded_v11、室内稳态、Windows 双图 Release、人工门户巡走仍未最终闭环。
 - C13-20：README、environment、tools README、handoff/backlog 与当前事实漂移。
+- C13-22：启动质量 UI 用硬编码 Eco，同持久化真实档位可能不一致；自动“diag 截图”实际被 capture_ui 隐藏，没有独立证据价值。
 
 ---
 
@@ -624,7 +625,11 @@ verify 失败只输出错误并非零退出，绝不“顺手修”。
 
 本章不把所有工具重写成事务系统，但所有**生产必需输出**必须可观察失败并让当前 Godot 进程 quit(1)。
 
+street assemble 的输入本身也必须成为硬前置：GENERATED_SPEC、AUTHORED_SPEC、GENERATED_SCENE、AUTHORED_SCENE 任一缺失/不可解析都必须失败。当前 AUTHORED_SPEC 为空或 AUTHORED_SCENE 缺失时不能继续组出“缺精修层但看似成功”的 street。
+
 GenLib.MeshBuilder 保持 commit 的现有返回形态，增加只读 last_save_error/get_last_save_error；每次 commit 开始先清 OK，path 非空且 ResourceSaver.save 失败时记录错误。
+
+build_m01 当前 _pack 即使 ps.pack 失败也仍返回 PackedScene；本章改为失败返回 null/明确 Error，上层不得继续 ResourceSaver.save。
 
 build_m01/build_authored/build_interior 对每个需要落盘的 mesh、scene、spec、material/region manifest 逐项检查；任一 required output 失败立即停止本阶段。
 
@@ -823,6 +828,12 @@ main._on_quality_changed 只做 ToolUI 状态同步。
 删除：
 
 Viewport.use_occlusion_culling = true
+
+Main 在接线后做首次 UI 同步时，不能再写死 requested_id=&"eco"。必须使用：
+
+settings.get_profile_id() + settings.get_effective_state()
+
+这样 user://settings.cfg 持久化 Balanced 时，真实档位与按钮状态一致。
 
 ### 8.6 卸载
 
@@ -1233,6 +1244,8 @@ MapDefinition.validate 增加：
 - capture_anchor_names 非空时不允许重复；
 - capture_anchor_names 每项必须存在于 anchor_names。
 
+MapDefinition.get_capture_anchor_names 返回 PackedStringArray 副本；不能把 Resource 内部数组引用直接交给调用方。
+
 自动截图：
 
 - 使用 capture_anchor_ids；
@@ -1279,6 +1292,7 @@ MapManager.load_registry_file 不应边解析边写 _registry。
 
 新语义：
 
+0. Main 必须检查 load_registry_file 的 bool 返回值；失败时停止默认地图请求/自动化入口，显示“地图注册表不可用”的明确错误。不能忽略返回值后继续假装正常启动。
 1. 解析 JSON。
 2. schema_version 必须为 1。
 3. maps 必须为 Array。
@@ -1473,24 +1487,24 @@ NEON_ARTIFACT_DIR
 
 当前两图 capture list 为空，回落所有锚点。
 
+当前 _shoot_anchors 末尾还尝试每档拍一张 “diag” 图，但 CaptureService 会隐藏 capture_ui，而 diagnostics 所在 CanvasLayer 正属于 capture_ui；因此这一步不会可靠得到“带诊断面板”的画面，只增加重复截图。chapter1-3 直接删除这段自动 diag 拍摄，不新增 include_ui 参数。F2 诊断用于人工查看，截图瞬间的客观渲染计数继续以 JSON render_stats 为准。
+
 最终截图固定数量：
 
 street：
 
 - 7 anchors × Eco/Balanced = 14
-- 每档 1 张 diag = 2
-- 合计 16 PNG + 16 JSON
+- 合计 14 PNG + 14 JSON
 
 interior：
 
 - 4 anchors × Eco/Balanced = 8
-- 每档 1 张 diag = 2
-- 合计 10 PNG + 10 JSON
+- 合计 8 PNG + 8 JSON
 
 总计：
 
-- 26 PNG
-- 26 同名 JSON
+- 22 PNG
+- 22 同名 JSON
 
 每个 JSON 必须含：
 
@@ -1695,7 +1709,7 @@ build/ 二进制继续不提交 Git。
 - no-op 重建 hash 稳定；
 - v1 不继承 succeeded。
 
-### WP2 — Assemble/Bake 原子状态机
+### WP2 — Assemble/Bake 状态机
 
 涉及：
 
@@ -1709,6 +1723,8 @@ build/ 二进制继续不提交 Git。
 - bake 写空数据之前 manifest 已 running；
 - missing/save/report/manifest 任一失败均 exit1；
 - 成功时真实数据与 manifest 一致。
+
+WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产生的 production bake 当最终证据。manifest v2 第一次正式生产重烘安排在 WP3 authored 去重之后，避免对同一 street 无意义烘焙两次。
 
 ### WP3 — Authored 去重 + ownership 保护 + 旧 baseline 移除
 
@@ -1977,9 +1993,9 @@ MapId=m01_repair_interior：
 
 ### export
 
-只有 verify 已单独通过并不代表当前命令调用一定执行过 verify；因此 Stage=export 仍至少跑轻量 pre-export verify_build，避免导出 stale bake。
+Stage=export 不能假设调用者刚跑过 verify。独立 export 入口必须先执行完整 Step-Verify（verify_build + lifecycle + ch11/ch12/ch13），全部通过才允许 Godot --export-release。
 
-Stage=all 继续严格顺序。
+Stage=all 继续严格顺序；进入 export 时可复用本次 all 中刚完成的 Step-Verify 结果，避免同一进程脚本重复跑两遍，但实现上必须保证不存在“直接 export 跳过门槛”的路径。
 
 ---
 
@@ -2090,7 +2106,8 @@ PASS：
 - UI 数字提示真实；
 - capture_anchor contract 生效；
 - current bookmark 不误标，旧 revision 有提示；
-- 所有 final PNG 与 JSON 一一对应。
+- 所有 final PNG 与 JSON 一一对应；
+- 自动化不再生成名为 diag 但实际隐藏诊断层的重复截图，render_stats JSON 是截图时诊断权威。
 
 ### H7 — Benchmark 正确性
 
@@ -2234,7 +2251,7 @@ Chapter 1.3 只有同时满足以下条件才算完成：
 10. capture anchors、portal target、bookmark revision 都有明确合同；
 11. timeout orphan、capture abort 等失败路径不会留下永久 busy；
 12. 旧烘焙脚本/旧 lightmap/死 mesh 在确认无引用后清理；
-13. 最终 26 PNG + 26 JSON、双图性能、进程采样、Windows Release、人工门户巡走都有证据；
+13. 最终 22 PNG + 22 JSON、双图性能、进程采样、Windows Release、人工门户巡走都有证据；
 14. 文档与仓库当前事实一致；
 15. 没有为了本章新增未来功能空框架。
 
