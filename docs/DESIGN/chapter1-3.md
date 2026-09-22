@@ -731,17 +731,19 @@ register_exclusion: bool = true
 
 实施时以真实重建输出为准。如果不是 38，必须解释差异；硬门槛仍是“精确重复=0、每个特殊重叠有明确语义”。
 
-### 7.5 revision
+### 7.5 content revision 时点
 
-street 实际几何与 lightmap 输入改变：
+C13-05 去重已经会改变 street 几何，但本章后续 WP8/WP9 还会继续改变正式场景内容和可能微调锚点。不能在中途先把同一个 1.3.0 发布语义占掉。
 
-m01_afterglow content_revision：1.2.0 → 1.3.0
+实施规则：
 
-interior 若本章不改几何/锚点/walk surface：
+- 工程修复和中间美术 pass 阶段，assemble 常量暂维持开发基线 revision；这些中间工件不得作为正式 Release。
+- WP9 完成所有 street 几何、材质、灯光和锚点冻结后，**一次性把 m01_afterglow content_revision 从 1.2.0 升到 1.3.0**。
+- 升 revision 后必须再执行最终 generate → assemble → bake → verify → screenshot/perf；升版前的 bake/screenshot 只算过程证据。
+- m01_repair_interior 若其几何、锚点、walk surface 以及实际引用的共享材质均未改变，则保持 1.2.0。
+- 若 1.3 为了街区美术直接修改了 interior 实际引用的共享材质/招牌资源并造成可见变化，则 interior 也属于内容变更：必须重新目检并将其 revision 升至 1.3.0。不能让“1.2.0”在相同 revision 下出现两套可见室内。
 
-m01_repair_interior 保持 1.2.0
-
-不要为了章节号整齐无意义地让室内书签全部过期。
+不要为了章节号整齐机械同步升版；以实际内容是否改变为准。
 
 ---
 
@@ -1566,6 +1568,20 @@ tools/m01_detail_lib.gd
 
 只抽取真正重复的构件。某个物件只出现一次时直接留在对应 region builder，不为了“库化”再造抽象。
 
+### 20.2.1 共享材质与室内边界
+
+build_interior 会实际使用 street 共享库中的 wall_warm、wall_brick、sign_repair 等资源，窗外小景还使用 pavement/asphalt；因此“改街区材质”并不天然只影响 street。
+
+1.3 默认策略：
+
+- 已被 interior 实际 mesh surface 使用的基础共享 key 视为冻结接口；没有明确双图收益时不直接改它们。
+- 街区近景需要更强表面差异时，优先新增少量 outdoor-only variant，例如 service/aged/painted 变体，并只分配给 street 建筑。
+- asphalt_wet 的修正可以实施，但最终以 dependency closure 判断 interior 是否实际引用；若 interior scene 不引用该 surface，不产生 revision 影响。
+- sign_repair 等真正双图共用视觉资产如修改，必须同时跑 interior 四机位回归，并按 §7.5 判断是否升 interior revision。
+- BuildContract 应让真正被 interior scene 引用的共享材质/纹理自动进入 interior bake_input_hash；“脚本只是 load 了但 mesh 没用”不应被手工猜测成依赖。
+
+这条边界优先于“为了统一风格顺手全库调 roughness”。
+
 ### 20.3 authored region mesh 重新分组
 
 保留现有：
@@ -1584,12 +1600,38 @@ tools/m01_detail_lib.gd
 
 现有 PropsStreetEnrich 的物件在 1.3 实施时按坐标迁入上述三个 mesh；迁移后删除旧单体 PropsStreetEnrich，避免同时维护两套。
 
+当前 G1/G6 等函数里的摆放点横跨多个 Z 区域，不能简单把“一个 G 函数 = 一个新 region”。迁移时将**摆放数据**按区域拆分，而不是复制一套生成逻辑：
+
+- 通用几何 primitive 进 m01_detail_lib；
+- 现有 _bike / _a_frame_board / _food_cart / _clothesline 等仍可保留为 authored 私有 helper，只有第二个区域真正复用时才上移；
+- 每个新 region builder 只列本区 placements，并调用同一 helper；
+- 禁止同一个 placement 同时出现在旧 G 数组和新 region 数组。
+
+拆分属于 lightmap 结构变化：一个 PropsStreetEnrich 变成三个 MeshInstance3D，expected bake user paths 预计净增 2。当前历史 users=10/expected≈9 的固定数字从此失效；所有测试和文档必须以 manifest 的 expected/actual/missing 集合为权威，禁止写死“street 必须 users=10”。
+
+拆分完成后先重烘焙，再用 7 个 Balanced 锚点与 art_baseline_v13 做像素/目检对照。由于 UV2 packing 会变化，“几何坐标没变”不能替代截图验证。
+
 每个 region 都：
 
 - 作为 detail_props；
 - 在 region_manifest 中有 bounds；
 - 有 Eco/Balanced 可见距离；
 - 保持自身 MeshBuilder 合并，避免每个小物变一个节点。
+
+### 20.3.1 Lightmap hint 与相机 exclusion
+
+新 region mesh 默认 lightmap_size_hint=512×512，与现有 authored props 保持同量级。
+
+只有 repair/station 等 Hero 区域在实际重烘后出现可见 texel 破碎、且 512 确认为根因时，才单独升到 1024；不把每个小物 region 都设 1024。
+
+新 props 的 camera exclusion 继续采用“少量簇级 AABB”原则：
+
+- 大型固定设备柜/储物柜/成组售货机等如果位于自由摄影可达路线并足以产生明显穿模，按整个功能簇加 1 个 exclusion；
+- 小招牌、线缆、垃圾桶、单车等不逐物体加 AABB；
+- 不给远景和屋顶不可达微细节加 exclusion；
+- 新 exclusion 必须经过 7 锚点与自由摄影路线检查，避免为了防穿模反而把镜头通道封死。
+
+Occluder 同样只用于建筑/大体量遮挡面，不为 L2/L3 小道具创建。
 
 ### 20.4 为什么不用大量 MultiMesh
 
@@ -1615,6 +1657,21 @@ https://docs.godotengine.org/en/4.7/tutorials/performance/using_multimesh.html
 ---
 
 ## 21. 分区正式施工任务
+
+### 21.0 新增前先做“已有物件占位审计”
+
+正式添加每个区域前，先把 generated 与 authored 中已存在的物件列成一张 region inventory，避免“为了丰富”重复造同一功能。
+
+当前已经明确存在的例子：
+
+- repair plaza：generated 已有工具车、门外轮胎、长椅、花坛、围桩、串灯；authored G4 又已有 A 板、自行车架、油桶托盘、手推车。
+- station：generated 已有指示牌/候车椅/导流柱；authored forecourt 又已有长椅、自行车架、排水沟、导流柱、邮筒。
+- service court：已经有长椅、维修工具箱/油桶/木箱、花箱、壁灯、晾衣/水池/杂物架/猫窝。
+- main street：已经有路灯、电杆、长椅、垃圾桶、消防栓、便利店配送箱与 chapter1-2 六组 enrich。
+
+新增任务必须回答“它补的是哪个尚未表达的城市功能”，不能因为同类物件好做就继续叠加。
+
+region inventory 作为 docs/chapter1_3/review.md 的制作记录，不需要另建运行时数据格式。
 
 ### 21.1 主街 — 从“有商铺的街”升级为“近未来旧城主轴”
 
@@ -1857,9 +1914,11 @@ street_view / roof_terrace_view / station_view 中至少形成：
 
 - asphalt_rough；
 - pavement_rough；
-- wall_grime/detail mask；
+- outdoor wall_grime/detail mask；
 - metal_painted_rough；
 - 可选 compact signage/utility atlas。
+
+实现时优先让这些纹理服务 outdoor-only variant，不直接覆盖 interior 正在使用的 wall_warm/wall_brick/sign_repair 基础 key。StandardMaterial3D roughness texture 的通道/导入设置以 Godot 4.7 实际属性为准，并纳入 BuildContract 依赖；不凭名称假定通道。
 
 尺寸以 512 为主，地面可 1024。
 
@@ -2115,14 +2174,32 @@ https://docs.godotengine.org/en/4.7/engine_details/architecture/internal_renderi
 - 不增加持续逐帧脚本到每个招牌/终端；
 - 不新增动态大屏视频。
 
-### 26.6 性能目标
+### 26.6 纹理/显存增长警戒线
+
+art_baseline_v13 记录完成后，新增纹理与重烘焙带来的引擎估计 video-memory 峰值：
+
+- 目标：不超过 baseline +25%；
+- 若绝对增量先达到 +64 MiB，即进入强制调查，即使百分比尚未到 25%；
+- 该指标是调查线，不单独作为 GPU 真显存判定，因为当前 Performance.RENDER_VIDEO_MEM_USED 本身是引擎估计值；
+- Windows WorkingSet/PrivateBytes 仍由 sample_process.ps1 作为系统级主要证据。
+
+纹理方面：
+
+- 常规 utility/roughness/atlas 512；
+- 大面积地面最多 1024 起步；
+- 不新建 4K；
+- 同类小标识优先 atlas，不一牌一纹理。
+
+### 26.7 性能目标
 
 最终正式数据以 §30 为准。
 
 美术阶段的快速红线：
 
-- Eco 不得明显跌离 30 FPS cap；
-- Balanced 不得明显跌离 60 FPS cap；
+- Eco 正式 60s 路线 average_fps 目标 ≥29；
+- Balanced 正式 60s 路线 average_fps 目标 ≥58；
+- capped P95 应接近对应帧预算（Eco≈33.3ms、Balanced≈16.7ms）；若明显高于预算或 >100ms stutter 增长，必须定位，而不是只看平均 FPS；
+- 最终性能不得比 art_baseline_v13 出现无法解释的持续退化；
 - 发现连续掉帧先定位区域 mesh / transparency / real-time light / texture memory，再继续加内容；
 - draw_calls monitor 在当前 Mobile 项目历史上口径偏低，不能单独作为真值；同时看 frame time、visible primitives、video memory 与 Windows 工作集。
 
@@ -2528,7 +2605,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 - build_authored.gd
 - build_chapter11.ps1
 - 删除 authored_input_hash.baseline
-- street revision 1.3.0
+- 记录 street revision_pending=1.3.0；本阶段不提前发布 1.3.0
 
 然后 street 必须重建+重烘。
 
@@ -2613,7 +2690,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 
 ### WP8 — 主场景结构与城市系统深化
 
-前置：WP0–WP7 全绿，先记录 art_baseline_v13。
+前置：WP0–WP7 全绿；用修复后的真实代码先完成一次 street assemble+bake+verify，再记录 art_baseline_v13（7 个 Balanced 锚点 + 构建/网格/性能基线）。这次只作为美术 before，不作为最终 1.3 Release。
 
 涉及：
 
@@ -2648,7 +2725,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 - 7 锚点全部 ≥15/18；
 - Hero 三机位目标 ≥16/18；
 - H11/H12 通过；
-- street content_revision 若 WP3 已升 1.3.0，则本章内部后续美术不重复再升小版本；最终 1.3.0 代表本章完整街区内容。
+- 冻结 street 几何/材质/灯光/锚点后才把 content_revision 升到 1.3.0；随后必须再跑 WP10 最终完整链。
 
 ### WP10 — 最终重建、双图视觉、性能、Release、人工巡走、文档
 
@@ -3000,8 +3077,10 @@ PASS：
 PASS：
 
 - PropsStreetEnrich 已按 South/Mid/North 或等价 20–40m 区域拆分，旧 giant mesh 不再作为新增细节容器；
+- bake user 数不写死历史 10；manifest expected/actual/missing 能正确覆盖拆区后的新节点集合；
 - 新增 detail 都有明确 region / visibility range；
 - 1.3 新增 authored detail 默认净增 ≤15k triangles；超出时有实际性能证据与 review 说明；
+- video-memory 相对 art_baseline_v13 的增长没有越过 §26.6 警戒线而未解释；
 - optional runtime light/probe/particle 不超过既有预算；
 - expanded_v11 两档正式性能与 Windows 工作集采样通过；
 - 重复赛博小构件由 m01_detail_lib 收敛，没有继续复制大量同形函数；
