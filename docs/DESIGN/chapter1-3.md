@@ -1,11 +1,11 @@
-# Chapter 1.3 — 工程可信性收口、运行时合同修复与发布验收
+# Chapter 1.3 — 工程可信性收口、主场景成品建设与发布验收
 
 > 项目：霓湾 / Neon Haven  
 > 代码审阅基线：main@5b95b25903f638a7c35c32015d54921dae53a168（chapter1-2 最终视觉闭环代码）  
 > 计划初稿提交：41aac560caf4a0f1bea181f40b8949198781eca0  
 > 本次深化审阅仓库快照：main 含 518 个 Git tree 条目，递归树完整、未截断  
-> 文档版本：1.1 · 2026-09-22  
-> 性质：实施工作单。除本文明确列出的修复、清理、验证外，不扩展新地图、NPC、玩法或联网功能。
+> 文档版本：1.3（三轮 review 收口版）· 2026-09-22  
+> 性质：实施工作单。范围包含工程可信性修复、m01_afterglow 正式主场景深化、双图回归与发布验收；不扩展新地图、NPC、玩法或联网功能。
 
 ---
 
@@ -2101,12 +2101,14 @@ Balanced 的 glow 修复为真正生效后再调强度。
 
 项目原有合格线仍是 ≥14/18。
 
-1.3 成品目标提高为：
+1.3 成品目标按**最终 14 张 street 成品图逐图**判定，而不是按锚点把 Eco/Balanced 平均：
 
-- 7 个 street 锚点全部 ≥15/18；
-- Hero 三机位目标 ≥16/18。
+- 7 anchors × 2 profiles = 14 个评分行；
+- 14/14 每张都必须 ≥15/18；
+- Hero 三机位 × 两档 = 6 张 Hero 图，每张目标 ≥16/18；
+- 任意一张出现单项 <2 即 FAIL，即使另一档同机位很漂亮也不能抵消。
 
-若某镜头只有 14/18，不能把它写成 1.3 美术完成；要修到 15 或在 review 中明确列为未完成项。
+若某张只有 14/18，不能把它写成 1.3 美术完成；要修到 15 或在 review 中明确列为未完成项。
 
 ---
 
@@ -2128,7 +2130,23 @@ C13-01…C13-17 修完、authored 去重完成后，在任何正式美术新增�
 
 这套叫 art_baseline_v13。
 
-后面所有美术比较都相对它，而不是相对 chapter1 旧 50-node 数据。
+为让三角预算不是人工抄日志，生成规格同步增加纯制作统计字段：
+
+generated_spec.json.build_stats：
+
+- static_tris
+- generated_props_tris
+- backdrop_tris
+
+authored_spec.json.build_stats：
+
+- authored_static_tris
+- region_prop_tris：Dictionary(region_id → tris)
+- authored_props_total_tris
+
+这些字段只用于制作/验收，不进入 MapDefinition，也不作为运行时逻辑输入。verify 只校验它们是非负且与本轮构建输出存在，不以历史固定数字判 PASS。
+
+后面所有美术比较都相对 art_baseline_v13，而不是相对 chapter1 旧 50-node 数据。
 
 ### 26.2 新增几何预算
 
@@ -2248,14 +2266,44 @@ art_baseline_v13 记录完成后，新增纹理与重烘焙带来的引擎估计
 
 artifacts/chapter1_3/scene_review：
 
-- baseline/：7 个 Balanced 锚点；
-- pass_backdrop/：受影响 3 个锚点；
+- baseline/：7 anchors × Eco/Balanced = 14 张 post-fix、pre-art 基线；
+- pass_split/：StreetEnrich 拆区后的 7 张 Balanced，对比确认仅结构变化、无明显画面回归；
+- pass_backdrop/：受影响的 street/station/roof 两档代表图；
 - pass_regions/：每区域主锚点；
 - final/：最终 14 张 street 两档。
 
 过程图不需要全部长期保留；最终 review 只提交能解释关键决策的代表图和最终图。
 
+同时提交：
+
+- scene_quality_matrix.md：14 行最终 street 图，每行给出 6 项 0..3、总分、硬失败项、具体证据描述；
+- scene_quality_matrix.json：同一矩阵的机器可读版，记录 image filename/build_id/profile/anchor/scores/total/status；
+- scene_metrics.json：记录 baseline/final 的 tris、region tris、node count、expected/actual bake users、video memory、optional group counts 与差值。
+
+scene_quality_matrix 不允许只写 PASS。每个镜头至少写出：
+
+- 主焦点是什么；
+- 前/中/远三层分别是什么；
+- 一个最强优点；
+- 若满分未达 18，最主要的剩余限制是什么。
+
+这样“真实赛博城市”不是一句主观结论，而能追到具体画面。
+
 ### 27.4 视觉 review 顺序
+
+最终视觉验收做两遍，不能一眼看完就直接打分：
+
+**A. 中性描述遍**
+
+只描述画面里实际可见的主体、遮挡、亮暗、层次、异常，不先看评分目标，不先决定 PASS/FAIL。记录明显缺面、埋墙、文字不可读、纯色大面、强光吞细节等事实。
+
+**B. Rubric 评分遍**
+
+再按六项 0..3 评分，并把 A 遍观察对应到分数。若 A 遍与评分结论矛盾，以可复核画面事实为准，重新检查。
+
+允许由同一名有图像能力的 reviewer 执行，但两遍记录必须分开；条件允许时用第二个 reviewer 做 Hero 六图交叉复核。
+
+像素/亮度工具只能证明位置、亮度、色彩或过曝占比，不能单独证明“该对象是什么”；语义结论仍以截图观察为主。
 
 每轮不先看“赛博不赛博”，先检查：
 
@@ -2276,8 +2324,8 @@ artifacts/chapter1_3/scene_review：
 
 **H11 — 城市美术完整性**
 
-- 7 个 street 锚点全部 ≥15/18；
-- Hero 三机位目标 ≥16/18；
+- 最终 14 张 street 图逐图评分，14/14 ≥15/18；
+- Hero 三机位 × 两档的 6 张图逐图目标 ≥16/18；
 - 主要街景不再出现“连续大面纯盒 + 只有窗格/招牌”的最终立面；
 - 至少 6 栋主视线建筑有明确不同的二级改造语言；
 - main street / repair / service court / station / roof 五个功能区一眼可区分；
@@ -2299,7 +2347,7 @@ artifacts/chapter1_3/scene_review：
 
 ## 28. C13-18 — 最终证据格式
 
-### 19.1 不再提交 verbose log 作为唯一证据
+### 28.1 不再提交 verbose log 作为唯一证据
 
 .gitignore 继续忽略 *.log。
 
@@ -2307,7 +2355,7 @@ artifacts/chapter1_3/scene_review：
 
 旧 docs 中对 regression_*.log、perf_street.log 的唯一引用要替换为结构化可提交摘要。
 
-### 19.2 artifacts/chapter1_3
+### 28.2 artifacts/chapter1_3
 
 最终至少：
 
@@ -2319,11 +2367,15 @@ artifacts/chapter1_3/scene_review：
 - performance/summary.csv
 - performance/<run_id>/summary.json
 - performance/process_<...>.csv
+- scene_review/scene_quality_matrix.md
+- scene_review/scene_quality_matrix.json
+- scene_review/art_baseline_v13.json
+- scene_review/scene_metrics.json
 - export_check.md
 
 临时过程截图/日志只有对排障有长期价值时才保留。
 
-### 19.3 build_id
+### 28.3 build_id
 
 最终验收前设置统一 NEON_BUILD_ID。
 
@@ -2339,7 +2391,7 @@ OS.get_environment("NEON_BUILD_ID")
 
 Benchmark 同样记录此值。
 
-### 19.4 bake artifact 目录
+### 28.4 bake artifact 目录
 
 移除 bake_plugin 的 chapter1_2 常量。
 
@@ -2393,6 +2445,15 @@ interior：
 
 任何缺一张都不允许 SHOOT_DONE 成功。
 
+最终证据索引还要检查唯一性：
+
+- street 必须恰好覆盖 7 anchor × 2 profile 的 14 个 (map, anchor, profile) 组合；
+- interior 必须恰好覆盖 4 anchor × 2 profile 的 8 个组合；
+- 不接受重复文件名“凑够 22 张”；
+- PNG 与 JSON 的 map_id/anchor_id/profile_id/build_id 必须相互一致；
+- street 最终 JSON 的 content_revision 必须全部是 1.3.0；
+- interior revision 按 §7.5 的实际变更结果一致，不允许同一最终批次混用两个 revision。
+
 视觉重点：
 
 - street 清重复几何后 7 机位无缺面/z-fighting/漏光；
@@ -2404,7 +2465,7 @@ interior：
 
 ## 30. 性能最终验收
 
-### 21.1 street
+### 30.1 street
 
 expanded_v11：
 
@@ -2418,7 +2479,7 @@ expanded_v11：
 
 - 至少 Eco 或 Balanced 各做一轮 --occlusion off 对照；最好两档各一轮，报告不与正式默认轮混算。
 
-### 21.2 interior
+### 30.2 interior
 
 interior_v13：
 
@@ -2430,7 +2491,7 @@ interior_v13：
 
 额外可做 on 对照，必须标实验覆盖。
 
-### 21.3 外部进程采样
+### 30.3 外部进程采样
 
 使用 sample_process.ps1。
 
@@ -2450,7 +2511,19 @@ interior_v13：
 
 不把引擎 MEMORY_STATIC 当 Windows 工作集。
 
-### 21.4 正式输出正确性
+### 30.4 性能 PASS 口径
+
+正式 capped 轮：
+
+- street expanded_v11：Eco 三轮 average_fps 均 ≥29；Balanced 三轮均 ≥58；
+- interior_v13：Eco 三轮均 ≥29；Balanced 三轮均 ≥58；
+- 任一轮 valid=false 不能用其它轮补平均，必须重跑该轮；
+- P95/P99、>100ms stutter 与 art_baseline_v13 同表对比；出现明显恶化必须写原因并优化/复测，不能只凭 average_fps 过线；
+- Windows WorkingSet/PrivateBytes 连续正式轮次不应呈单向增长；若增长超过既有生命周期调查线（后半轮波动约 10% 或 150 MiB 量级），必须定位后再签收。
+
+occlusion override 轮只用于分析，不代替地图默认状态正式轮。
+
+### 30.5 正式输出正确性
 
 每个 run.json/summary：
 
@@ -2468,7 +2541,7 @@ interior_v13：
 
 ## 31. Windows Release / G6
 
-### 22.1 构建
+### 31.1 构建
 
 用当前最终 commit 从完整流水线：
 
@@ -2476,7 +2549,7 @@ generate → assemble → bake → verify → export
 
 不得拿 chapter1-1 的旧 build 作为 1.3 证据。
 
-### 22.2 独立目录
+### 31.2 独立目录
 
 复制 EXE + PCK 到例如：
 
@@ -2489,7 +2562,7 @@ D:\霓湾 发布验证\Release Candidate\
 - 不依赖项目目录 .godot；
 - 不依赖 Python/Blender/网络。
 
-### 22.3 人工检查
+### 31.3 人工检查
 
 至少：
 
@@ -2722,8 +2795,8 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 
 门槛：
 
-- 7 锚点全部 ≥15/18；
-- Hero 三机位目标 ≥16/18；
+- 14 张 street 两档最终候选逐图全部 ≥15/18；
+- Hero 三机位 × 两档 6 张逐图目标 ≥16/18；
 - H11/H12 通过；
 - 冻结 street 几何/材质/灯光/锚点后才把 content_revision 升到 1.3.0；随后必须再跑 WP10 最终完整链。
 
@@ -2773,6 +2846,8 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 | T13-10 | capture anchors 是 anchor_names 子集 |
 | T13-11 | registry map_id 与 definition.map_id 一致、无重复 |
 | T13-12 | 双向 portal target map + anchor 存在 |
+| T13-12b | 每个 detail_props region 节点路径唯一、在最终 scene 存在，并在 region_manifest 有对应配置 |
+| T13-12c | generated/authored build_stats 非负；region_prop_tris 的 key 与实际 region mesh 集合一致 |
 
 ### 34.3 运行时
 
@@ -3035,8 +3110,8 @@ PASS：
 
 PASS：
 
-- street expanded_v11 Eco/Balanced 各 3 valid；
-- interior_v13 Eco/Balanced 各 3 valid；
+- street expanded_v11 Eco/Balanced 各 3 valid，且 Eco 每轮 average_fps ≥29、Balanced 每轮 ≥58；
+- interior_v13 Eco/Balanced 各 3 valid，且 Eco 每轮 average_fps ≥29、Balanced 每轮 ≥58；
 - occlusion 对照单列；
 - 至少四组代表性 Windows 进程采样；
 - 不使用截图瞬时 FPS 当稳态结论。
@@ -3064,8 +3139,9 @@ PASS：
 
 PASS：
 
-- 7 个 street 锚点全部 ≥15/18；
-- street_view / repair_shop_view / station_forecourt_view 三个 Hero 机位目标 ≥16/18；
+- 14 张 street 最终图逐图 14/14 ≥15/18；
+- street_view / repair_shop_view / station_forecourt_view 三个 Hero 机位 × 两档共 6 张逐图目标 ≥16/18；
+- scene_quality_matrix.md/json 与最终 14 张图一一对应，并保留中性描述遍 + rubric 评分遍的证据；
 - 至少 6 栋主视线建筑具有可辨识的二级改造语言（机电/通信/检修/窗态/屋顶设施）；
 - main street、repair plaza、service court、station、roof terrace 五区功能和视觉语言可区分；
 - Backdrop 至少 4 类轮廓语言，且不抢主地标；
@@ -3084,6 +3160,8 @@ PASS：
 - optional runtime light/probe/particle 不超过既有预算；
 - expanded_v11 两档正式性能与 Windows 工作集采样通过；
 - 重复赛博小构件由 m01_detail_lib 收敛，没有继续复制大量同形函数；
+- generated/authored build_stats 与 scene_metrics 能解释 baseline→final 的几何增长；
+- detail_props region 与 region_manifest 一一对应；
 - 未引用实验材质、纹理、旧区域 mesh 在最终提交前清理。
 
 ---
@@ -3197,6 +3275,84 @@ PASS：
 - skyline 先只在 street/station/roof 三机位审；
 - 背景只服务轮廓层次；
 - 与余晖维修、霓湾站、signal tower 争焦点的背景体量优先删除/降亮。
+
+---
+
+## 40.5 三轮计划 Review 记录
+
+这三轮 review 审的是**本文实施计划本身**，不是声称代码已经修完或场景已经完成。
+
+### Review 1 — 架构与单一权威
+
+重点检查：
+
+- BuildContract 是否会变成第二套构建系统；
+- manifest / bake / verify 的权威关系；
+- ResourceLoader cache；
+- Environment 是否可能参与 bake；
+- quality / occlusion 的唯一控制者；
+- shared build 顺序；
+- 章节结构和接口边界。
+
+回写结果：
+
+- BuildContract 限定为纯制作/helper；
+- baked data fresh-load 使用 CACHE_MODE_REPLACE_DEEP；
+- bake environment 输入按实际 mode 纳入；
+- MapId=both 改为共享输入先稳定；
+- 启动 quality UI 不再硬编码 Eco；
+- H11/H12 正式进入最终门槛。
+
+结论：主架构无需重写，修复路径没有引入并行运行时架构。
+
+### Review 2 — 场景施工与实现可行性
+
+重点检查：
+
+- 当前已有物件是否会被重复建设；
+- StreetEnrich 拆区是否可落地；
+- Lightmap users/UV2 是否会因拆区失真；
+- 共享材质是否误改 interior；
+- content_revision 时点；
+- triangles / texture / video-memory 预算；
+- Hero 区域新增是否符合当前低负担目标。
+
+回写结果：
+
+- 加入 region inventory；
+- placement 按区域拆、helper 不复制；
+- 禁止写死历史 users=10；
+- 默认 region lightmap hint 512，必要时 Hero 单区再升；
+- 基础共享材质默认冻结，outdoor refinement 优先新 variant；
+- street 1.3.0 延迟到全部美术/锚点冻结后；
+- 增加 +25% / +64MiB 显存调查线与 ≥29/≥58 快速性能线。
+
+结论：正式场景建设可以在现有 authored/LightmapGI 架构内完成，不需要引入新地图系统或高成本实时渲染。
+
+### Review 3 — 验收闭环与反自证
+
+重点检查：
+
+- 文档编号/交叉引用；
+- “7 锚点”是否会掩盖 Eco/Balanced 某一档失败；
+- 三角/region 数是否有机器可追踪来源；
+- 最终截图是否能用重复文件凑数；
+- 美术评分是否只有一句 PASS；
+- 性能是否只有 valid 没有阈值；
+- region_manifest 是否能证明所有 detail region 被管理。
+
+回写结果：
+
+- 修正 §28/§30/§31 子标题旧编号；
+- H11 改成 14 张 street 图逐图评分，Hero 六图逐图目标；
+- 增加 scene_quality_matrix.md/json、art_baseline_v13.json、scene_metrics.json；
+- generated/authored spec 增加 build_stats；
+- 增加 detail_props ↔ region_manifest 自动合同；
+- 最终截图按 (map,anchor,profile) 唯一组合核对；
+- H8 明确 Eco ≥29 / Balanced ≥58 的三轮硬口径；
+- 视觉验收拆成“中性描述 → rubric 评分”两遍，避免先有结论再找证据。
+
+结论：截至本文版本，没有发现仍需在计划层新增另一套架构或扩大范围的问题。实施阶段若真实截图/性能暴露新问题，按 H0–H12 失败处理并回到对应 WP 修复，不能修改门槛迁就结果。
 
 ---
 
