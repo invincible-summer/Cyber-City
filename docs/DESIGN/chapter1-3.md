@@ -31,12 +31,12 @@
 | neon_bake | 编辑器 LightmapGI 烘焙 | 保留为唯一生产烘焙入口 |
 | verify/tests | 构建合同与运行时回归 | 强化；必须只读、不得自我“修正”被测数据 |
 
-本章目标不是新增功能，而是让以下四件事都变成可证明事实：
+本章不新增新地图或玩法系统，但除了工程修复，还正式把第一张主场景推进到 1.3 成品质量。最终要让以下五件事都变成可证明事实：
 
 1. 构建状态可信：任何影响 Lightmap 的输入变化都能让旧烘焙失效；任何漏烘焙都不能被标记成功。
 2. 运行时状态可信：Eco/Balanced、地图级 occlusion、错误请求、截图、benchmark 的实际状态与报告一致。
 3. 自动化可失败：坏地图、截图失败、benchmark 路线不匹配、烘焙缺失都必须非零退出，而不是卡住或静默跳过。
-4. 发布证据可信：最终截图、性能、双图生命周期、Windows Release 与人工巡走都能从仓库中的结构化证据追溯到同一 build_id。
+4. 主场景质量可信：m01_afterglow 的城市结构、材质、光照、赛博基础设施和七个构图达到本文 H11/H12，而不是只完成代码修复。\n5. 发布证据可信：最终截图、性能、双图生命周期、Windows Release 与人工巡走都能从仓库中的结构化证据追溯到同一 build_id。
 
 ### 0.2 本章不做
 
@@ -853,6 +853,27 @@ MapManager 在以下两条真正离开地图的路径调用：
 - activation/load 失败最终回 EMPTY。
 
 切图 READY→UNLOADING→LOADING→READY 不需要在中间反复切 project default；新图激活时由 apply_to_map 一次落最终值。
+
+### 8.7 启动画质 UI 同步（C13-22 的运行时部分）
+
+Main 当前在 SettingsManager 已从 user://settings.cfg 恢复真实 profile 后，仍手工调用：
+
+_on_quality_changed(&"eco", settings.get_effective_state())
+
+这会让 UI 的 requested_id 与真实持久化 profile 不一致。
+
+改为：
+
+_on_quality_changed(settings.get_profile_id(), settings.get_effective_state())
+
+或者提供一个无 signal 的 _sync_quality_ui_from_settings()，只读 SettingsManager 当前值。
+
+验收：
+
+- settings.cfg=balanced 启动时 UI 直接显示 Balanced；
+- settings.cfg=eco 显示 Eco；
+- 非法配置仍由 SettingsManager 回落 Eco，UI 与回落结果一致；
+- 不为“初始化 UI”再次 set_profile，避免多余持久化/quality_changed。
 
 ### 8.7 验收
 
@@ -2653,7 +2674,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 
 新增一套 1.3 专用合同测试，不把原测试塞成巨型文件。
 
-### 25.1 Build/manifest
+### 34.1 Build/manifest
 
 | ID | 测试 |
 | --- | --- |
@@ -2666,7 +2687,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 | T13-07 | manifest v2 只有 source roots+hash+expected+真实 data 全一致才能 reuse |
 | T13-07b | assemble 不可复用分支必须先持久化 pending/stale，再允许覆盖 baked data |
 
-### 25.2 地图数据
+### 34.2 地图数据
 
 | ID | 测试 |
 | --- | --- |
@@ -2676,7 +2697,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 | T13-11 | registry map_id 与 definition.map_id 一致、无重复 |
 | T13-12 | 双向 portal target map + anchor 存在 |
 
-### 25.3 运行时
+### 34.3 运行时
 
 | ID | 测试 |
 | --- | --- |
@@ -2689,7 +2710,7 @@ WP2 先用 build_bake_probe/受控 fixture 验证状态机，不把此阶段产�
 | T13-19 | bookmark current/stale/unknown revision 标签语义 |
 | T13-20 | automation wait READY 可 timeout/failure，不永久 await |
 
-### 25.4 Benchmark
+### 34.4 Benchmark
 
 | ID | 测试 |
 | --- | --- |
@@ -2961,6 +2982,30 @@ PASS：
 - README/handoff/backlog/environment/tools README/asset_sources 与实际一致；
 - 不再把不存在的 *.log 作为唯一证据；
 - NOT_RUN 如实保留，绝不伪写 PASS。
+
+### H11 — 城市美术完整性
+
+PASS：
+
+- 7 个 street 锚点全部 ≥15/18；
+- street_view / repair_shop_view / station_forecourt_view 三个 Hero 机位目标 ≥16/18；
+- 至少 6 栋主视线建筑具有可辨识的二级改造语言（机电/通信/检修/窗态/屋顶设施）；
+- main street、repair plaza、service court、station、roof terrace 五区功能和视觉语言可区分；
+- Backdrop 至少 4 类轮廓语言，且不抢主地标；
+- Eco 关闭 glow/particles 后仍保留赛博城市身份和主构图；
+- 无主要中文招牌缺字、过曝成白块、近景埋墙、明显穿模或世界空洞。
+
+### H12 — 场景性能与可维护性
+
+PASS：
+
+- PropsStreetEnrich 已按 South/Mid/North 或等价 20–40m 区域拆分，旧 giant mesh 不再作为新增细节容器；
+- 新增 detail 都有明确 region / visibility range；
+- 1.3 新增 authored detail 默认净增 ≤15k triangles；超出时有实际性能证据与 review 说明；
+- optional runtime light/probe/particle 不超过既有预算；
+- expanded_v11 两档正式性能与 Windows 工作集采样通过；
+- 重复赛博小构件由 m01_detail_lib 收敛，没有继续复制大量同形函数；
+- 未引用实验材质、纹理、旧区域 mesh 在最终提交前清理。
 
 ---
 
