@@ -201,6 +201,7 @@ extends RefCounted
 | collect_bake_input_files(root_paths, extra_paths=[]) -> PackedStringArray | 过滤运行脚本/烘焙输出后得到真实 bake 输入 |
 | stable_file_hash(path: String) -> String | 文本资源做稳定规范化，二进制按字节 hash |
 | hash_file_set(paths) -> String | 路径+hash 排序后生成总签名 |
+| load_resource_fresh(path: String, type_hint: String = "") -> Resource | 用 CACHE_MODE_REPLACE_DEEP 读取磁盘当前内容，禁止旧 Resource cache 冒充新 baked data |
 | expected_bake_users(root: Node) -> Array[String] | LightmapGI 下 GI_STATIC + UV2 的应烘焙节点路径 |
 | actual_bake_users(lm: LightmapGI) -> Array[String] | 从 LightmapGIData 读取 user paths |
 | missing_paths(expected, actual) -> Array[String] | expected - actual |
@@ -246,10 +247,29 @@ BuildContract 必须从最终组装根读取并序列化一份稳定的 bake set
 
 - dependency file set hash
 - bake settings snapshot hash
+- 在 LightmapGI 的 environment mode 会使用场景/自定义环境时，对应的 bake-relevant environment snapshot/hash
 
 共同组成。
 
+当前两图的 WorldEnvironment 主要承担运行时天空、雾、tone mapping 和 glow，但 BuildContract 不能把“Environment 永远不参与 bake”写死为假设。实施时读取实际 LightmapGI environment mode：若该模式不会使用环境输入，snapshot 明确记录 disabled/none；若会使用 scene/custom environment，则把真正影响 bake 的 Environment/Sky 资源或稳定属性纳入签名。
+
 此外 expected_baked_user_paths 是独立的结构签名：即使资源内容不变，只要最终 LightmapGI 子树节点路径/参与资格变化，也不得复用旧 bake。
+
+### 2.4.1 Resource cache 规则
+
+所有“判断磁盘 baked data 是否仍有效”的读取都不得直接依赖默认 load() 缓存。
+
+原因：assemble/bake 会在同一进程生命周期内替换 .res；若旧 LightmapGIData 已在 ResourceLoader cache 中，普通 load(path) 可能返回旧对象，让“磁盘已空、内存仍旧”伪装成有效数据。
+
+统一规则：
+
+- BuildContract.load_resource_fresh 使用 ResourceLoader.CACHE_MODE_REPLACE_DEEP；
+- assemble 在 reuse 判定时用 fresh load；
+- bake plugin 预保存空数据后重新绑定时用 fresh load；
+- verify 从磁盘复核 LightmapGIData 时也用 fresh load；
+- 测试必须覆盖“先缓存旧资源 → 覆盖磁盘 → fresh load 看到新内容”。
+
+Godot ResourceLoader 文档明确 CACHE_MODE_REPLACE_DEEP 会把主资源及依赖从磁盘刷新到已有缓存对象；实现以本机 4.7.2 API 为准。
 
 ### 2.5 manifest v2
 
@@ -327,9 +347,9 @@ assemble 不再无条件覆盖 baked data。
 1. 构建最终 MapRoot，但暂不破坏现有 baked 文件。
 2. 从当前 root 计算 expected_baked_user_paths。
 3. 计算 manifest v2 bake_input_hash。
-4. 读取上一 manifest + 已有 baked/map_lightmap.res。
+4. 读取上一 manifest + 已有 baked/map_lightmap.res；baked data 必须通过 BuildContract.load_resource_fresh 读取。
 5. 判断 can_reuse_bake。
-6. 若可复用，把已有 LightmapGIData 绑定到当前 LightmapGI。
+6. 若可复用，把 fresh-load 后验证通过的已有 LightmapGIData 绑定到当前 LightmapGI。
 7. 若不可复用，才创建空 LightmapGIData，并把 manifest 置 stale/pending。
 8. pack/save map.tscn。
 9. 写 manifest v2。
@@ -388,15 +408,16 @@ neon_bake 在真正 bake 前会预保存空 LightmapGIData，但当前只修改�
 4. 读取 manifest v2，并确认其 bake_input_hash 与当前 scene 输入一致；不一致直接失败，要求重新 assemble。
 5. **先原子写 manifest：bake_status=running、job_id、本轮 expected、actual=[]、missing=[]。**
 6. manifest 写成功后，才允许覆盖 baked/map_lightmap.res 为新空数据。
-7. 触发编辑器 Bake Lightmaps。
-8. 等实际 user_count 稳定。
-9. 计算 actual/missing。
-10. missing 为空才继续。
-11. EditorInterface.save_scene()，检查返回 Error。
-12. 再次从磁盘/scene 读取必要状态做终检。
-13. 原子写 manifest succeeded + expected/actual/missing=[] + finished time。
-14. 写 report success=true。
-15. 输出 NEON_BAKE_EXIT=0。
+7. 空数据保存成功后，用 CACHE_MODE_REPLACE_DEEP/fresh-load 重新绑定 LightmapGI，确认 user_count=0；不能让 ResourceLoader cache 中的旧数据继续挂在节点上。
+8. 触发编辑器 Bake Lightmaps。
+9. 等实际 user_count 稳定。
+10. 计算 actual/missing。
+11. missing 为空才继续。
+12. EditorInterface.save_scene()，检查返回 Error。
+13. 再次从磁盘/scene fresh-load 必要状态做终检。
+14. 原子写 manifest succeeded + expected/actual/missing=[] + finished time。
+15. 写 report success=true。
+16. 输出 NEON_BAKE_EXIT=0。
 
 任何一步失败：
 
@@ -709,9 +730,22 @@ Viewport.use_occlusion_culling = true
 
 ### 8.6 卸载
 
-进入 EMPTY 后恢复 project default occlusion，而不是硬编码 true：
+进入 EMPTY 后恢复 project default occlusion，而不是硬编码 true。
 
-ProjectSettings.get_setting("rendering/occlusion_culling/use_occlusion_culling", true)
+SettingsManager 增加唯一入口：
+
+apply_no_map_defaults() -> void
+
+它只负责恢复“不属于任何地图”的全局视口覆盖，当前至少包含：
+
+Viewport.use_occlusion_culling = ProjectSettings.get_setting("rendering/occlusion_culling/use_occlusion_culling", true)
+
+MapManager 在以下两条真正离开地图的路径调用：
+
+- 正常 unload 完成且没有 pending next map；
+- activation/load 失败最终回 EMPTY。
+
+切图 READY→UNLOADING→LOADING→READY 不需要在中间反复切 project default；新图激活时由 apply_to_map 一次落最终值。
 
 ### 8.7 验收
 
@@ -1787,22 +1821,29 @@ build_chapter11.ps1 保持统一入口，并深化以下能力：
 
 ### generate
 
-street：
+MapId=both 的顺序必须改为“共享输入先稳定、street 先、interior 后”。当前脚本先 build interior、后 build_m01，而 build_interior 会加载 assets/m01_afterglow/materials，build_m01 又会重建这些共享材质；这个顺序会让一次完整构建依赖上一次提交中已有材质状态。
 
-- textures
+MapId=both：
+
+- gen_textures
 - import
-- signs
+- gen_signs
 - import
 - authored ownership prehash
-- build_m01
+- build_m01（同时把共享材质更新到本轮状态）
 - authored ownership posthash + assert unchanged
 - build_authored
+- build_interior（此时读取的共享材质已是本轮最新）
 - import
 
-interior：
+MapId=m01_afterglow：
 
-- build_interior
-- import
+- gen_textures → import → gen_signs → import → ownership prehash → build_m01 → posthash → build_authored → import
+
+MapId=m01_repair_interior：
+
+- 只 build_interior + import，但 Step-Validate 必须先确认其依赖的已提交共享 materials/textures/signs 全部存在；
+- 如果本轮同时修改了共享材质/招牌生成规则，必须使用 MapId=both，不允许只跑 interior 并声称全量重建完成。
 
 ### assemble
 
