@@ -1,1235 +1,2088 @@
-# Chapter 1.3 — 工程收口、构建可信性与运行时合同修复
+# Chapter 1.3 — 工程可信性收口、运行时合同修复与发布验收
 
 > 项目：霓湾 / Neon Haven  
-> 审阅基线：`main@5b95b25903f638a7c35c32015d54921dae53a168`  
-> 审阅日期：2026-09-22  
-> 文档性质：基于当前仓库完整树、核心运行时代码、双地图构建链、测试、已提交验收工件与交接文档的**修复实施计划**。  
-> 本章不扩展新地图/NPC/玩法；先把 chapter1-2 后的工程闭环做实，再进入新的内容扩展。
+> 代码审阅基线：main@5b95b25903f638a7c35c32015d54921dae53a168（chapter1-2 最终视觉闭环代码）  
+> 计划初稿提交：41aac560caf4a0f1bea181f40b8949198781eca0  
+> 本次深化审阅仓库快照：main 含 518 个 Git tree 条目，递归树完整、未截断  
+> 文档版本：1.1 · 2026-09-22  
+> 性质：实施工作单。除本文明确列出的修复、清理、验证外，不扩展新地图、NPC、玩法或联网功能。
 
 ---
 
-## 0. 审阅结论
+## 0. 本章目标、结论与执行边界
 
-### 0.1 总体判断
+### 0.1 总体结论
 
-当前仓库的**主架构方向完整且恰当，不需要推倒重写**。
+当前工程的主架构是成立的，应保留而不是重写。
 
-已形成的核心边界是正确的：
+经过对根工程、scripts/app、scripts/maps、scripts/diagnostics、两张生产地图、tools、addons/neon_bake、tests、data、docs 与 artifacts 的再次完整核对，当前正确且应继续沿用的边界是：
 
-- 应用外壳与地图内容分离：`scenes/app/main.tscn` + `scripts/app/` 持有相机、UI、截图、设置、诊断；
-- 地图生命周期分离：`MapManager` 负责严格单活动地图的异步卸载/加载/激活；
-- 地图数据合同轻量化：`MapDefinition` 只保存路径、边界、锚点、门户、行走面等值数据；
-- 地图运行时统一：两张生产地图都使用 `MapRoot`；
-- 室外/室内拆成独立地图，稳态只加载一张，符合当前“低负担本地城市展示程序”的优先级；
-- `generated / authored / assemble / bake / verify` 分层制作链已经建立；
-- Eco / Balanced、截图、书签、性能采样、ActivityGuard 已经是独立职责；
-- 生命周期测试已经覆盖双图往返与弱引用回收；
-- chapter1-2 已形成真实截图、LightmapGI 报告和多轮视觉验收历史。
+| 层 | 当前职责 | 1.3 结论 |
+| --- | --- | --- |
+| scenes/app + main.gd | 组合应用壳、UI、自动化入口 | 保留，只修状态同步与自动化失败路径 |
+| MapManager | 严格单活动地图、异步卸载/加载/激活 | 保留状态机，不重写 |
+| MapDefinition | 轻量地图数据合同 | 保留 v2；补校验，不升版本 |
+| MapRoot | 地图运行时合同、画质、环境动画、门户门扇 | 保留；增加极少只读接口 |
+| ObserverCamera | fly / walk 观察相机 | 保留；补公开锚点访问器 |
+| SettingsManager | 画质档与窗口节流权威 | 保留；补“当前活动地图同步” |
+| CaptureService | PNG+JSON 截图 | 保留；修 abort 收尾与 build_id 接线 |
+| BenchmarkRunner | 可复现性能采样 | 保留；修状态快照、环境记录、路线兼容 |
+| generated/authored/assemble | 离线地图制作分层 | 保留；清重复生成与指纹漏洞 |
+| neon_bake | 编辑器 LightmapGI 烘焙 | 保留为唯一生产烘焙入口 |
+| verify/tests | 构建合同与运行时回归 | 强化；必须只读、不得自我“修正”被测数据 |
 
-因此 chapter1-3 的策略是：**保留现有主架构，修复已经确认的闭环缺口，并给这些缺口补上自动化验收。**
+本章目标不是新增功能，而是让以下四件事都变成可证明事实：
 
-### 0.2 本章确认存在、需要修复的问题
+1. 构建状态可信：任何影响 Lightmap 的输入变化都能让旧烘焙失效；任何漏烘焙都不能被标记成功。
+2. 运行时状态可信：Eco/Balanced、地图级 occlusion、错误请求、截图、benchmark 的实际状态与报告一致。
+3. 自动化可失败：坏地图、截图失败、benchmark 路线不匹配、烘焙缺失都必须非零退出，而不是卡住或静默跳过。
+4. 发布证据可信：最终截图、性能、双图生命周期、Windows Release 与人工巡走都能从仓库中的结构化证据追溯到同一 build_id。
 
-按优先级排序：
+### 0.2 本章不做
 
-| ID | 级别 | 问题 | 结论 |
-| --- | --- | --- | --- |
-| C13-01 | P0 | Lightmap 覆盖缺失仍可能被标记为成功 | 必修；会让漏烘焙进入“succeeded” |
-| C13-02 | P0 | `build_authored.gd` 重复生成站前静态几何，并产生重复禁入 AABB | 必修；真实重复几何/重复运行时检查 |
-| C13-03 | P0 | 已加载地图切换 Eco/Balanced 时，MapRoot 侧质量项不会重新应用 | 必修；当前“Balanced”可能只切了 Viewport 参数 |
-| C13-04 | P0 | 地图级 `occlusion_enabled` 没有成为运行时权威，Benchmark 结束还硬恢复 true | 必修；室内定义明确为 false，却可能实际为 true |
-| C13-05 | P1 | 无效地图请求在 MapManager 保留当前图，但 `main.gd` 会把 UI/相机清成“未加载” | 必修；违反既有状态机合同 |
-| C13-06 | P1 | 街区已有 7 个机位，但主输入只处理数字键 1–6 | 必修；README/UI 与真实输入不一致 |
-| C13-07 | P1 | 书签“旧版本”判断硬编码 `1.1.0` | 必修；当前 1.2.0 新书签也会被误标 |
-| C13-08 | P1 | 门户 verify 只确认目标 definition 文件存在，不确认目标 anchor 存在 | 应修；错误只能到实际按 F 时才暴露 |
-| C13-09 | P1 | 最终验收证据存在断链：文档引用被 `.gitignore` 排除的 log；v9 最终图缺对应 JSON 元数据 | 必修；结论无法从干净检出完整复核 |
-| C13-10 | P1 | chapter1-2 Windows Release/G6、expanded_v11 ×3、室内稳态、人工门户巡走仍未闭环 | 本章收口 |
-| C13-11 | P2 | `docs/environment.md`、`tools/README.md` 等仍包含 1.1 时期状态 | 必修文档同步，但不应先于代码/实测改结论 |
+以下保持现状：
 
-### 0.3 本章明确不改的部分
+- 不重写 MapManager 状态机。
+- 不把 m01_repair_interior 合并回 m01_afterglow。
+- 不引入 CharacterBody3D、碰撞体、导航、NPC、任务、战斗、联网。
+- 不增加复杂地图内流式系统。
+- 不把 MapDefinition 变成持有 PackedScene、Mesh、Material、LightmapGIData 的重资源。
+- 不拆出新的全局 Autoload。
+- 不把 build_chapter11.ps1 仅因名字带 11 而改名；当前脚本已经承担双图统一入口，改名收益不足。
+- 不删除仍有实际诊断价值的 build_bake_probe、debug_grid_stats、debug_sign_*、sample_png_grid、sample_process。
+- MapDefinition.schema_version 继续为 2；本章新增的是运行时/构建实现合同，不是破坏性的地图定义格式迁移。
 
-以下内容经本轮审阅没有发现需要重构的证据，**保持现状**：
+### 0.3 优先级
 
-1. 不重写 `MapManager` 状态机；其“先卸载旧图、等待释放、再加载新图”的方向正确。
-2. 不把室内并回街区；两图独立加载是当前低负担目标下更合适的结构。
-3. 不引入 CharacterBody、物理碰撞、导航、NPC、任务、联网、运行时生成。
-4. 不把 `MapDefinition` 改成持有 PackedScene/材质/lightmap 的重资源对象。
-5. 不新增复杂地图内流式系统；当前地图粒度仍足够。
-6. 不为了“代码更漂亮”拆掉现有 CaptureService、BenchmarkRunner、ActivityGuard。
-7. 不因为 `build_chapter11.ps1` 名称带历史版本就强行重命名；它当前已经支持双图，重命名收益不足以抵消文档与自动化迁移成本。
-8. 不删除 v7–v9 排障期留下、仍具有复核价值的图像/材质/取色诊断工具；只有确认完全重复、无文档引用的临时工具才可在本章末单独清理。
-9. `MapDefinition.schema_version` 继续保持 2；本章修复没有新增破坏性持久化字段语义，不需要为了章节号升 schema。
+P0 必须先修，否则后续截图/性能/导出证据都不可信：
 
----
+- C13-01：assemble 可清空 baked data 却保留 succeeded。
+- C13-02：bake plugin 漏覆盖/保存失败仍可能成功。
+- C13-03：烘焙输入指纹漏掉 authored mesh、材质、纹理等真实依赖。
+- C13-04：verify 会自行更新 authored baseline，验证器不是只读。
+- C13-05：authored 站前几何和 exclusions 重复生成。
+- C13-06：Eco/Balanced 运行时只部分生效；occlusion 权威失真。
+- C13-07：Benchmark 输出读取恢复后的环境，且 headroom/FPS 恢复顺序有误。
 
-## 1. 本次仓库审阅范围与结构判断
+P1 修复运行可靠性与用户可见合同：
 
-### 1.1 审阅范围
+- C13-08：MapManager 超时 orphan 轮询会被自己关闭。
+- C13-09：无效 preflight 请求会让 Main 清掉仍然 READY 的地图 UI/相机。
+- C13-10：自动化等待 READY 无失败/超时出口，截图失败仍可 exit 0。
+- C13-11：street 有 7 锚点但快捷键只支持 1–6；外部代码直接读相机私有字段。
+- C13-12：capture_anchor_names 是“存在但未实际使用”的接口。
+- C13-13：书签旧版本提示硬编码 1.1.0。
+- C13-14：门户目标只验证 definition 文件，不验证 registry/target anchor。
+- C13-15：CaptureService abort 后可永久保持 busy。
+- C13-16：生产 registry 与 verify 仍有硬编码/部分验证，新增地图容易被静默漏验。
 
-本次以 GitHub `main` 为唯一权威基线，递归树共 **517** 个条目，重点核对：
+P1/P2 收口：
 
-- 根工程：`project.godot`、`export_presets.cfg`、`README.md`、`AGENTS.md`；
-- 应用层：`scripts/app/*.gd`；
-- 地图层：`scripts/maps/*.gd`；
-- 性能层：`scripts/diagnostics/*.gd`；
-- 双图：`maps/m01_afterglow/`、`maps/m01_repair_interior/`；
-- 构建：`tools/build_*.gd`、`assemble_*.gd`、`verify_build.gd`、`build_chapter11.ps1`；
-- 烘焙：`addons/neon_bake/bake_plugin.gd`；
-- 配置：`data/map_registry.json`、`data/quality/*.json`；
-- 测试：`tests/test_map_lifecycle.gd`、`test_chapter11_contract.gd`、`test_chapter12_contract.gd`；
-- 文档与证据：`docs/DESIGN/`、`docs/handoff.md`、`docs/backlog.md`、`docs/environment.md`、`docs/chapter1_2/review.md`、`artifacts/`；
-- 最近 chapter1-2 终验提交及其变更说明。
-
-本次是**仓库静态审阅 + 已提交证据复核**。本章中的“当前代码确认”来自 GitHub 当前文件；既有 review 中记录的 Godot 实跑结果不冒充本次重新执行。chapter1-3 实施阶段仍必须重新跑完整验证门槛。
-
-### 1.2 当前代码架构
-
-#### 应用壳
-
-`main.gd` 是组合根，动态创建：
-
-- `MapSlot`
-- `CameraRig / ObserverCamera`
-- `SettingsManager`
-- `MapManager`
-- `ToolUI`
-- Loading overlay
-- Diagnostics
-- CaptureService
-- BenchmarkRunner
-
-这种动态组合目前规模仍可控，且各服务脚本职责已经独立。chapter1-3 不因为主脚本较长就进行无收益拆分。
-
-#### 地图生命周期
-
-`MapManager` 的主流程：
-
-`EMPTY → LOADING → ACTIVATING → READY`
-
-切图：
-
-`READY → UNLOADING → LOADING → ACTIVATING → READY`
-
-已具备：
-
-- 事务 ID；
-- ActivityGuard；
-- threaded resource loading；
-- 超时与 orphan load 收尾；
-- 旧图真正释放后才加载下一张；
-- 激活失败移除部分实例；
-- 相机合同绑定；
-- portal entry anchor；
-- 单活动 MapRoot。
-
-这是目前仓库最重要的正确架构之一，chapter1-3 只修外围状态同步，不改主状态机。
-
-#### 地图合同
-
-`MapDefinition` v2 已包含：
-
-- 基础路径/显示信息；
-- camera bounds / exclusions；
-- anchors；
-- content revision；
-- region manifest；
-- occlusion 开关；
-- capture anchor 回落；
-- baked-lighting 要求；
-- fly / walk 模式；
-- walk surfaces；
-- portals。
-
-接口粒度适合继续逐张增加地图，不需要另造第二套地图描述系统。
-
-#### 地图根
-
-`MapRoot` 已统一承担：
-
-- 运行时合同验证；
-- 锚点读取；
-- 摄影边界数据；
-- portal door 动画；
-- quality profile 对地图内节点的应用；
-- 区域细节距离；
-- 环境动画暂停/固定时间/快照；
-- deactivation 清理。
-
-这层应继续作为“地图运行时行为的单一入口”。
-
-#### 制作与构建
-
-当前生产链是：
-
-1. 纹理/招牌生成；
-2. 街区 generated；
-3. 街区 authored；
-4. 室内 generated；
-5. assemble；
-6. import；
-7. LightmapGI bake；
-8. verify；
-9. lifecycle/contract tests；
-10. screenshot/perf/export。
-
-方向正确；本章主要修复“成功判定是否可信”和“生成层是否重复”。
+- C13-17：旧单图烘焙脚本、旧根目录 lightmap、旧 props mesh 形成平行旧架构。
+- C13-18：最终证据引用被 gitignore 排除的 log，v9 PNG 与 JSON 未完整配对。
+- C13-19：expanded_v11、室内稳态、Windows 双图 Release、人工门户巡走仍未最终闭环。
+- C13-20：README、environment、tools README、handoff/backlog 与当前事实漂移。
 
 ---
 
-## 2. C13-01 — Lightmap 覆盖完整性必须成为硬失败条件
+## 1. 当前仓库架构快照
 
-### 2.1 当前事实
+### 1.1 目录事实
 
-`addons/neon_bake/bake_plugin.gd` 当前已经能计算：
+本次深化审阅的 main tree 共 518 个条目，主要内容：
 
-- `expected`：LightmapGI 子树内应参与烘焙、静态且带 UV2 的 MeshInstance3D 路径；
-- `actual`：LightmapGIData 实际 user paths；
-- `missing = expected - actual`。
+| 区域 | 当前内容 |
+| --- | --- |
+| scripts/app | 9 个运行时脚本：guard、bookmark、camera、pose、capture、diagnostics、main、settings、tool_ui |
+| scripts/maps | MapDefinition、MapManager、MapRoot |
+| scripts/diagnostics | BenchmarkRunner、PerfRoutes |
+| maps/m01_afterglow | generated、authored、baked、meshes、最终 scene/definition/manifest |
+| maps/m01_repair_interior | generated、baked、meshes、最终 scene/definition/manifest |
+| tools | 49 个制作/诊断文件 |
+| tests | 3 套主测试 + fixtures |
+| artifacts | 215 个已提交工件 |
+| assets | 97 个字体、材质、纹理、招牌资源 |
+| data | map_registry + Eco/Balanced |
 
-但当前逻辑在 `missing.size() > 0` 时只打印警告，随后仍：
+### 1.2 运行时主链
 
-- 把 manifest 写成 `bake_status = "succeeded"`；
-- 报告成功条件使用 `missing.is_empty() or actual.size() > 0`；
-- 只要实际烘到了至少一个 user，即使还有 expected 缺失，也可能最终 `NEON_BAKE_EXIT=0`。
+正常启动：
 
-同时，两份 assemble 脚本虽然已有 `expected_baked_user_paths` 字段，但每次写 manifest 都初始化为空；`verify_build.gd` 目前只要求：
+main._ready
+→ 创建 shell/services
+→ MapManager.setup
+→ registry load
+→ request_map(m01_afterglow)
+→ threaded load
+→ MapRoot runtime validation
+→ SettingsManager.apply_to_map
+→ ObserverCamera.bind_map_contract / apply default pose
+→ READY / map_loaded
+→ Main 注入锚点位姿与门户值副本
 
-- `bake_status == succeeded`
-- `actual_baked_user_paths.size() > 0`
+这条主链本身不改。
 
-因此 verify 无法独立证明“所有应烘焙网格均被覆盖”。
+### 1.3 制作主链
 
-这是构建门槛语义错误，不是单纯文档问题。
+当前统一入口的语义是：
 
-### 2.2 修复原则
+validate
+→ generate
+→ assemble
+→ bake
+→ verify
+→ export
 
-烘焙成功必须满足：
+本章必须保证每个阶段只承担自己的职责：
+
+- generate：生成可重建内容；不修改有效 baked data。
+- assemble：组合最终 scene/definition，计算当前烘焙签名，决定旧 bake 是否可安全复用。
+- bake：只有这里允许主动重建 LightmapGIData。
+- verify：只读验证；绝不修改 baseline、manifest、scene、definition。
+- export：只在前述门槛通过后进行。
+
+---
+
+## 2. 构建可信性的目标数据模型：BuildContract + manifest v2
+
+### 2.1 为什么不能继续补手工文件数组
+
+当前 street manifest 手工哈希：
+
+- generated/map_generated.tscn
+- baked_static.res
+- baked_props.res
+- backdrop.res
+- authored/authored_static.tscn
+
+但 authored_static.tscn 引用的外部二进制资源实际还包括：
+
+- authored_static_mesh.res
+- authored_PropsServiceCourt.res
+- authored_PropsStationForecourt.res
+- authored_PropsRoofTerrace.res
+- authored_PropsStreetEnrich.res
+- authored_door_frame.res
+- authored_door_leaf.res
+
+同时两图都依赖 shared materials、纹理、招牌纹理与导入设置。只要资源路径不变、内容变化，当前 authored_input_hash 或 geometry_input_hash 可能保持不变。
+
+因此 1.3 禁止继续靠“发现漏项后往数组里补一个路径”修复。
+
+### 2.2 新增 tools/build_contract.gd
+
+新增一个非常小的纯制作辅助层：
+
+class_name BuildContract  
+extends RefCounted
+
+职责只限于：
+
+1. 递归解析资源依赖；
+2. 生成稳定输入文件列表和 hash；
+3. 计算当前应烘焙 user paths；
+4. 比较 expected/actual/missing；
+5. 提供 AABB 精确重复检查等纯函数。
+
+不负责：
+
+- 生成场景；
+- 写 manifest；
+- 启动 bake；
+- 修改地图；
+- 运行测试。
+
+建议公开接口：
+
+| 接口 | 语义 |
+| --- | --- |
+| normalize_dependency_path(raw: String) -> String | 解析 ResourceLoader.get_dependencies 的普通路径或 UID::fallback 格式 |
+| collect_dependency_closure(root_paths: PackedStringArray) -> PackedStringArray | 递归收集依赖闭包，排序去重 |
+| collect_bake_input_files(root_paths, extra_paths=[]) -> PackedStringArray | 过滤运行脚本/烘焙输出后得到真实 bake 输入 |
+| stable_file_hash(path: String) -> String | 文本资源做稳定规范化，二进制按字节 hash |
+| hash_file_set(paths) -> String | 路径+hash 排序后生成总签名 |
+| expected_bake_users(root: Node) -> Array[String] | LightmapGI 下 GI_STATIC + UV2 的应烘焙节点路径 |
+| actual_bake_users(lm: LightmapGI) -> Array[String] | 从 LightmapGIData 读取 user paths |
+| missing_paths(expected, actual) -> Array[String] | expected - actual |
+| exact_duplicate_aabbs(boxes) -> Array | 只查完全相同 AABB，不把有意重叠判错 |
+
+Godot 官方 ResourceLoader.get_dependencies 会返回资源直接依赖，并明确 dependency 可能为单一路径，也可能是 UID::空::fallback 三段形式；实现必须按该合同解析，而不能把原字符串直接当文件路径。官方 4.x/4.7 文档作为实施参考：
+https://docs.godotengine.org/en/4.7/
+https://docs.godotengine.org/en/stable/classes/class_resourceloader.html
+
+### 2.3 bake 输入根
+
+street：
+
+- maps/m01_afterglow/generated/map_generated.tscn
+- maps/m01_afterglow/authored/authored_static.tscn
+
+interior：
+
+- maps/m01_repair_interior/generated/interior_generated.tscn
+
+递归依赖闭包必须覆盖 mesh/material/texture 等资源。
+
+对于源图片，如果同路径存在 .import 文件，必须把 .import 也纳入输入，因为压缩、mipmap 等导入参数会影响最终资源。
+
+明确排除：
+
+- maps/*/baked/**
+- build_manifest.json
+- artifacts/**
+- docs/**
+- tests/**
+- *.uid
+- 运行时 GDScript（除非未来 bake 资产生成直接依赖脚本内容且输出未能反映；当前不需要）
+- 用户配置 user://**
+
+### 2.4 bake 设置也必须进入签名
+
+仅资源依赖还不够。LightmapGI 自身的烘焙设置变化也会影响结果。
+
+BuildContract 必须从最终组装根读取并序列化一份稳定的 bake settings snapshot。第一版至少覆盖实际 4.7.2 LightmapGI 中本项目会使用的烘焙相关值，例如 quality、bounces、texel scale/bias、directional、environment mode 等；实际字段名以本机 4.7.2 property list 确认为准，不能臆造属性。
+
+最终 bake_input_hash 由：
+
+- dependency file set hash
+- bake settings snapshot hash
+
+共同组成。
+
+此外 expected_baked_user_paths 是独立的结构签名：即使资源内容不变，只要最终 LightmapGI 子树节点路径/参与资格变化，也不得复用旧 bake。
+
+### 2.5 manifest v2
+
+两图统一迁移到 schema_version=2。
+
+manifest v2 的权威字段：
+
+| 字段 | 语义 |
+| --- | --- |
+| schema_version | 2 |
+| map_id | 稳定地图 ID |
+| content_revision | 内容修订 |
+| engine_version | 实际 Godot |
+| build_id | 本次构建关联键 |
+| bake_input_hash | 唯一的“是否可复用旧 bake”输入签名 |
+| bake_input_files | 排序后的输入文件与各自 sha256，便于审计 |
+| bake_settings | 实际 LightmapGI 烘焙设置快照 |
+| bake_job_id | 当前/最近一次 bake |
+| bake_status | pending / stale / running / succeeded / failed |
+| expected_baked_user_paths | 当前组装 scene 应烘焙节点 |
+| actual_baked_user_paths | 实际 LightmapGIData user paths |
+| missing_baked_user_paths | expected - actual |
+| bake_finished_utc | 成功/失败收尾时间 |
+| outputs | 可选制作输出索引，不作为 bake 成功权威 |
+
+迁移到 v2 后停止写：
+
+- geometry_input_hash
+- lighting_input_hash
+- authored_input_hash
+
+这些旧字段曾用于诊断，但已经无法作为完整 stale 判断；保留它们会形成第二套权威。若确有历史分析需要，从旧 commit 读取，不在 v2 继续维护。
+
+### 2.6 v1 → v2 迁移规则
+
+不能把旧 manifest 的 succeeded 直接迁移为 v2 succeeded。
+
+第一次由 1.3 assemble 看到 schema_version=1 时：
+
+- 计算 v2 bake_input_hash；
+- 计算当前 expected；
+- 状态置 stale；
+- actual/missing 不作为当前有效覆盖证明；
+- 必须真实执行一次 bake 后才能进入 succeeded。
+
+这是一次性迁移成本，换取后续可信状态。
+
+---
+
+## 3. C13-01 — Assemble 不得“清空 bake 但保留 succeeded”
+
+### 3.1 当前根因
+
+assemble_m01 与 assemble_interior 在构建 MapRoot 时都会：
+
+1. 新建空 LightmapGIData；
+2. 保存覆盖 maps/<map>/baked/map_lightmap.res；
+3. 把这个空数据挂给 LightmapGI；
+4. 后续 _write_manifest 如果旧手工 hash 未变，仍可能保留旧 succeeded 和 actual paths。
+
+于是 Stage=assemble 可以得到：
+
+- 磁盘 LightmapGIData 已空；
+- manifest 仍 succeeded；
+- actual_baked_user_paths 仍是旧数组。
+
+这在语义上是不可接受的。
+
+### 3.2 目标 assemble 顺序
+
+assemble 不再无条件覆盖 baked data。
+
+建议流程：
+
+1. 构建最终 MapRoot，但暂不破坏现有 baked 文件。
+2. 从当前 root 计算 expected_baked_user_paths。
+3. 计算 manifest v2 bake_input_hash。
+4. 读取上一 manifest + 已有 baked/map_lightmap.res。
+5. 判断 can_reuse_bake。
+6. 若可复用，把已有 LightmapGIData 绑定到当前 LightmapGI。
+7. 若不可复用，才创建空 LightmapGIData，并把 manifest 置 stale/pending。
+8. pack/save map.tscn。
+9. 写 manifest v2。
+
+can_reuse_bake 必须同时满足：
+
+- 前一 manifest schema_version=2；
+- 前一 bake_status=succeeded；
+- prev.bake_input_hash == current.bake_input_hash；
+- prev.expected_baked_user_paths == current expected（排序后相等）；
+- 现存 baked data 可加载；
+- 从现存 baked data 重新读取 actual；
+- missing_paths(current expected, actual) 为空。
+
+只看 manifest 中缓存的 actual 不够；必须读取真实 LightmapGIData。
+
+### 3.3 不可复用时
+
+若任何条件不满足：
+
+- 新建空 baked data；
+- bake_status=stale（已有旧 manifest）或 pending（全新地图）；
+- expected 写当前值；
+- actual=[]；
+- missing=[]（未烘焙不是“覆盖缺失结果”，因此先空；真正 bake 后再写 missing）；
+- bake_job_id 清空。
+
+此时运行时 requires_baked_lighting 地图不应作为最终发布状态通过 verify。
+
+### 3.4 验收
+
+T13 必须证明：
+
+- 连续两次 no-op assemble：第二次安全复用真实 baked data，user_count 不变，succeeded 保留。
+- 修改一个 bake 输入后 assemble：状态 stale，旧 bake 不复用。
+- 删除/损坏 baked data 后 assemble：即使旧 manifest 写 succeeded，也必须降级 stale。
+- 修改最终 expected user path 后 assemble：不得复用旧 bake。
+
+---
+
+## 4. C13-02 — Bake 必须先使旧成功状态失效，再写空数据
+
+### 4.1 当前根因
+
+neon_bake 在真正 bake 前会预保存空 LightmapGIData，但当前只修改插件内存 job state，没有先把磁盘 manifest 切到 running。
+
+如果进程在“空数据已写、manifest 尚未回写”之间失败，旧 manifest 仍可能显示 succeeded。
+
+### 4.2 原子顺序
+
+生产 bake 唯一允许顺序：
+
+1. 打开目标 scene。
+2. 完成 precheck。
+3. 计算/读取当前 expected。
+4. 读取 manifest v2，并确认其 bake_input_hash 与当前 scene 输入一致；不一致直接失败，要求重新 assemble。
+5. **先原子写 manifest：bake_status=running、job_id、本轮 expected、actual=[]、missing=[]。**
+6. manifest 写成功后，才允许覆盖 baked/map_lightmap.res 为新空数据。
+7. 触发编辑器 Bake Lightmaps。
+8. 等实际 user_count 稳定。
+9. 计算 actual/missing。
+10. missing 为空才继续。
+11. EditorInterface.save_scene()，检查返回 Error。
+12. 再次从磁盘/scene 读取必要状态做终检。
+13. 原子写 manifest succeeded + expected/actual/missing=[] + finished time。
+14. 写 report success=true。
+15. 输出 NEON_BAKE_EXIT=0。
+
+任何一步失败：
+
+- 尽最大可能写 manifest failed；
+- report success=false；
+- NEON_BAKE_EXIT=1；
+- PowerShell wrapper 停止；
+- 不允许 export。
+
+Godot EditorInterface.save_scene() 返回 Error，官方文档明确成功为 OK、失败可返回 ERR_CANT_CREATE；当前代码忽略返回值，1.3 必须检查：
+https://docs.godotengine.org/zh-cn/4.x/classes/class_editorinterface.html
+
+### 4.3 覆盖判定
+
+成功条件固定为：
 
 - expected 非空；
 - actual 非空；
-- `expected ⊆ actual`；
 - missing 为空。
 
-允许 actual 是 expected 的超集。当前实际报告中 Backdrop 可能作为额外 user 出现在 actual，因此不能要求两个集合严格相等。
+允许 actual 是 expected 的超集。当前历史 bake report 中 Backdrop 可能作为额外 actual user，因此不能强制集合严格相等。
 
-### 2.3 接口修改
+### 4.4 manifest/report 写盘失败也是 bake 失败
 
-#### bake_plugin
+当前 _update_manifest 遇到 manifest 不存在/JSON 非法只打印并返回，仍可能继续成功。
 
-将 manifest 回写职责明确为完整覆盖结果，而不是只写 actual：
+1.3 要求所有制作写操作返回 Error：
 
-`_update_manifest(job_id, expected, actual, missing, status, manifest_path)`
+- _write_manifest_state(...) -> Error
+- _write_report(...) -> Error
 
-至少持久化：
+成功链必须检查它们。
 
-- `bake_job_id`
-- `bake_status`
-- `expected_baked_user_paths`
-- `actual_baked_user_paths`
-- `missing_baked_user_paths`
-- `bake_finished_utc`
+### 4.5 负例
 
-成功路径：
+至少自动覆盖：
 
-- missing 为空；
-- 写 `succeeded`；
-- report `success=true`；
-- `NEON_BAKE_EXIT=0`。
-
-失败路径：
-
-- expected 为空、actual 为空或 missing 非空，均为失败；
-- manifest 写 `failed`，同时保留 expected/actual/missing 供排障；
-- report `success=false`；
-- `NEON_BAKE_EXIT=1`；
-- PowerShell wrapper 必须中止，不能继续 verify/export 并宣称完成。
-
-#### assemble_m01 / assemble_interior
-
-输入指纹未变化且上一轮确为 succeeded 时：
-
-- 同时保留 expected / actual / missing（missing 必须为空）；
-- 不再把 expected 无条件重置为空。
-
-输入变化时：
-
-- 状态变 `stale`；
-- 清空上一轮 expected/actual/missing，避免把旧覆盖信息带到新几何。
-
-#### verify_build
-
-新增独立验证：
-
-1. manifest expected 非空；
-2. manifest actual 非空；
-3. manifest missing 为空；
-4. 从当前 scene 重新计算“本次静态场景应烘焙节点路径集合”；
-5. 当前 expected 与 manifest expected 对齐；
-6. 当前 expected 全部包含于 actual；
-7. 只有全部通过才允许“烘焙门槛 PASS”。
-
-### 2.4 验收
-
-必须增加负例验证：
-
-- 人为构造 expected 中多一个不存在于 actual 的 path；
-- verify 必须失败；
-- bake coverage helper 必须返回失败；
-- 不允许 manifest 保持 succeeded。
-
-正常双图：
-
-- street：expected 全覆盖；
-- interior：expected 全覆盖；
-- actual 允许多出非 expected user；
-- 两图 `missing_baked_user_paths=[]`。
+- expected 中人为增加一个 actual 不存在 path → failed。
+- manifest 不可解析 → failed。
+- manifest bake_input_hash 与当前不一致 → failed。
+- report 目录不可写（可用测试 helper 模拟）→ 不允许 success helper 返回 true。
+- save_scene 返回非 OK 的分支通过纯 helper/包装测试验证“成功门槛不成立”。
 
 ---
 
-## 3. C13-02 — 清理 authored 重复站前几何与重复禁入体积
+## 5. C13-03 — 完整烘焙输入签名
 
-### 3.1 当前事实
+### 5.1 必测变化
 
-`tools/build_authored.gd` 顶层创建 authored static 时依次调用：
+BuildContract 的 bake_input_hash 必须对以下变化敏感：
 
-1. `_service_court_static(mb_static)`
-2. `_station_forecourt_static_common(mb_static)`
-3. `_roof_terrace_static(mb_static)`
+1. generated mesh 内容变化；
+2. authored_static_mesh 内容变化；
+3. 任一区域 authored props mesh 变化；
+4. 门框/门扇 mesh 变化；
+5. shared Material 参数变化；
+6. Material 引用的 PNG 内容变化；
+7. 对应 PNG.import 导入参数变化；
+8. 静态 bake light 的能量/颜色/位置变化；
+9. LightmapGI bake settings 变化。
 
-但 `_service_court_static()` 函数末尾又再次调用：
+对以下变化不应强制重烘：
 
-`_station_forecourt_static_common(mb)`
+- README 文案；
+- bookmark 用户文件；
+- UI 文案；
+- ToolUI 布局；
+- camera bookmark 数据；
+- artifacts 输出。
 
-结果是站前区域的同一套静态几何被写入同一个 authored static mesh **两次**。
+### 5.2 no-op 稳定性
 
-同一函数还存在禁入体积双来源：
+Godot 4.7 保存 tscn/tres 会写可能变化的 unique_id。stable_file_hash 必须继续沿用已验证的 unique_id 规范化思想。
 
-- `_authored_building()` 自动注册建筑 AABB；
-- `_service_court_static()` 又手工追加 west / annex / south AABB。
+实现完成后执行：
 
-其中 west、south 为精确重复；annex 则是一份自动高度 + 一份手工特殊高度，导致特殊规则没有真正成为唯一权威。
+generate → assemble → 记录 bake_input_hash  
+再次相同 generate → assemble → 再记录
 
-当前 `authored_spec.json` 中站前一组 AABB 也出现成组精确重复，最终 `map_definition.tres` 只是把 generated 与 authored exclusions 直接拼接，不做重复检查。
+两次必须相同。
 
-### 3.2 影响
-
-- identical triangles 重复写入网格；
-- UV2/lightmap packing 和烘焙输入承担无意义重复数据；
-- 可能增加 overdraw / lightmap 成本；
-- 相机每次移动对相同 AABB 重复判断；
-- authored spec 不再能作为可靠的“单一来源”；
-- 后续增加地图时容易把这种重复模式复制出去。
-
-### 3.3 修复方案
-
-#### 站前几何
-
-- 保留顶层 `_station_forecourt_static_common(mb_static)`；
-- 删除 `_service_court_static()` 尾部的嵌套调用；
-- 一个区域只由一个显式顶层调用负责。
-
-#### 建筑 exclusion 权威
-
-保留 `_authored_building()` 默认自动注册 exclusion，但给需要特殊规则的建筑一个显式参数，例如：
-
-- `register_exclusion: bool = true`
-
-对当前 service court：
-
-- SC_W：使用自动 exclusion，删除手工重复项；
-- SC_S：使用自动 exclusion，删除手工重复项；
-- SC_ANNEX：`register_exclusion=false`，只保留手工的特殊高度 exclusion；
-- 拱门、设备箱、栏杆、街道道具等非建筑特殊体积继续手工追加。
-
-不要在 assemble 阶段用“静默 dedupe”掩盖生成器错误。assemble/verify 可以做**精确重复检测并失败/报警**，但源头必须先修。
-
-### 3.4 重建要求
-
-这个修复会改变 authored scene / mesh 输入，必须按真实光照修改处理：
-
-1. generate street authored；
-2. assemble street；
-3. import；
-4. street 重新 bake；
-5. verify；
-6. 双图 lifecycle；
-7. street 全机位 Eco/Balanced 截图回归；
-8. expanded_v11 性能重新采样后才能作为最终数据。
-
-### 3.5 验收
-
-- authored static 中 station forecourt 只构建一次；
-- `authored_spec.exclusions` 精确重复项 = 0；
-- 最终 `MapDefinition.camera_exclusion_bounds` 精确重复项 = 0；
-- 不禁止“有意部分重叠”的 AABB，只禁止数值完全相同的重复项；
-- authored static triangle 数应较当前基线下降；记录实际 before/after，不预设伪造目标值；
-- 七个街区锚点截图不得因清理重复几何出现缺面、漏光、构图退化；
-- 重烘焙 missing=0。
-
-### 3.6 content revision
-
-该修改改变了街区实际生成/烘焙输入。实施时将 **`m01_afterglow.content_revision` 从 1.2.0 升到 1.3.0**。
-
-`m01_repair_interior` 若几何、锚点、行走面均未改变，则仍可保持 1.2.0；不要为了“版本看起来一致”让所有旧室内书签无意义变成 stale。
+如果还有其他非语义字段导致漂移，先定位并只规范化已证明的字段，不做泛化正则“删所有数字”。
 
 ---
 
-## 4. C13-03 / C13-04 — 让质量档与地图级遮挡配置真正闭环
+## 6. C13-04 — Verify 必须只读
 
-### 4.1 当前质量切换缺口
+### 6.1 当前缺陷
 
-`SettingsManager._apply_profile()` 目前直接应用的主要是 Viewport / Engine 全局状态：
+verify_build._check_authored_baseline 在 baseline 不一致时会直接把当前 hash 写成新 baseline，并打印“合法更新”。
 
-- render scale；
-- MSAA / FXAA；
-- max_fps。
+这意味着 verify 能修改被测对象，并把未知变化自动变成新基线，不能作为保护门槛。
 
-地图内质量状态由 `MapRoot.apply_quality(profile)` 负责：
+### 6.2 处理
 
-- optional particles；
-- runtime fill lights；
-- optional probes；
-- bake-only light 隐藏；
-- Environment glow；
-- detail prop range；
-- ambient particle emission。
+删除：
 
-但 `MapManager` 当前只在**地图激活时**调用一次：
+- maps/m01_afterglow/authored/authored_input_hash.baseline
+- verify_build 中自动建立/更新 baseline 的逻辑
 
-`_quality.apply_to_map(map_root)`
+verify 从此不得写 res://。
 
-地图已经 READY 后，UI 再切 Eco/Balanced，只触发 `SettingsManager.quality_changed`，`main.gd` 当前只更新质量按钮并把 occlusion 强制设 true，没有重新调用 MapRoot。
+### 6.3 如何证明 build_m01 不覆盖 authored
 
-因此：
+把“所有权保护”放到真正会执行生成器的 build_chapter11.ps1：
 
-- Eco → Balanced 后，Viewport 可能是 Balanced；
-- 但 MapRoot 仍可能保留 Eco 的 particles/probes/extra_lights/glow/detail range；
-- BenchmarkRunner 通过 `set_profile()` 切档时同样可能只得到部分档位状态；
-- 现有测试只验证 frame_cap/effective_state 字段存在，没有验证活动地图节点真的跟档位变化。
+street generate 顺序：
 
-### 4.2 当前 occlusion 缺口
+1. 生成纹理/招牌。
+2. 对现有 authored 所有权路径做 pre-city 指纹。
+3. 运行 build_m01.gd。
+4. 对同一路径做 post-city 指纹。
+5. 不相等立即失败：build_m01 越界修改 authored。
+6. 然后才运行 build_authored.gd；这是 authored 的合法写入者。
 
-室内 assemble 明确：
+所有权路径至少包括：
 
-`def.occlusion_enabled = false  # 单个小室内，遮挡剔除无收益`
+- maps/m01_afterglow/authored/**
+- maps/m01_afterglow/meshes/authored_*
 
-街区为 true。
+这比“长期 baseline”更准确：它验证的是一个工具有没有越界写，而不是阻止 authored 自身合法演进。
 
-但当前运行代码：
+### 6.4 Verify v2
 
-- `SettingsManager.apply_to_map()` 不读取 `MapDefinition.occlusion_enabled`；
-- `main._on_quality_changed()` 无条件 `viewport.use_occlusion_culling = true`；
-- `BenchmarkRunner._finish()` 也无条件恢复为 true。
+verify_build 必须：
 
-所以 `MapDefinition.occlusion_enabled` 当前没有成为真实运行时权威。
+- 从 registry 枚举所有生产地图；
+- 读取 MapDefinition；
+- 读取 manifest v2；
+- 重新算当前 bake_input_hash；
+- 重新算 current expected；
+- 从真实 LightmapGIData 读 actual；
+- 校验 status succeeded；
+- 校验 current hash == manifest hash；
+- 校验 current expected == manifest expected；
+- 校验 missing(current expected, actual).is_empty；
+- 校验 manifest actual 与真实 actual 至少一致到集合语义；
+- 校验 manifest missing 为空；
+- 校验 MapRoot runtime contract；
+- 再做 walk/portal 等地图合同。
 
-### 4.3 目标架构
-
-权威关系必须明确：
-
-- **质量档 JSON**：决定 render scale / AA / FPS / particles / probes / extra lights / glow / detail range；
-- **MapDefinition.occlusion_enabled**：决定“该地图默认是否启用遮挡剔除”；
-- **Benchmark occlusion_override**：只在单次基准中临时覆盖地图默认；
-- Benchmark 结束后恢复进入 benchmark 前的真实状态，而不是硬编码 true。
-
-### 4.4 接口方案
-
-#### MapManager
-
-增加一个薄入口：
-
-`apply_current_quality() -> Error`
-
-语义：
-
-- READY 且有活动 MapRoot：调用 `SettingsManager.apply_to_map(root)`；
-- EMPTY：返回 `ERR_UNCONFIGURED` 或 OK-noop，二者选定一种后固定测试；
-- 不保存额外 MapRoot 强引用。
-
-更推荐在 `MapManager.setup()` 后由 MapManager 自己订阅 `quality_changed`，这样：
-
-- 普通 UI 切档；
-- benchmark 临时切档；
-- runtime restore；
-
-都经过同一条路径，不依赖 main 再手工编排。
-
-`main._on_quality_changed()` 只保留 UI 同步，不再负责地图质量逻辑。
-
-#### SettingsManager.apply_to_map
-
-顺序：
-
-1. `MapRoot.apply_quality(current_profile)`；
-2. 从 `map_root.definition.occlusion_enabled` 应用 `Viewport.use_occlusion_culling`；
-3. 返回 Error。
-
-地图为空时不伪造 map 级状态。
-
-#### BenchmarkRunner
-
-运行开始：
-
-- 保存实际 `Viewport.use_occlusion_culling`；
-- 设置 profile 后先让正常质量链完成；
-- `occlusion_override=default`：不改地图默认值；
-- `on/off`：只对本轮临时覆盖。
-
-运行结束/中止：
-
-- restore quality/profile；
-- 恢复保存的实际 occlusion；
-- 删除当前 `vp.use_occlusion_culling = true` 的硬编码恢复。
-
-### 4.5 验收矩阵
-
-#### 地图默认
-
-- 加载 street：occlusion=true；
-- 切 interior：occlusion=false；
-- 返回 street：occlusion=true。
-
-#### 运行时质量切换
-
-street READY 后：
-
-- Eco：particles/probes/extra_lights/glow 按 Eco 实际状态，detail range=Eco；
-- 切 Balanced：对应地图节点立即变为 Balanced；
-- 切回 Eco：立即恢复。
-
-interior READY 后：
-
-- Eco ↔ Balanced 期间，occlusion 始终维持 false；
-- 不因切质量档被 main 强制改 true。
-
-#### Benchmark
-
-- interior + `occlusion_override=default`：记录 false；
-- interior + override=on：采样期 true，结束后 false；
-- street + override=off：采样期 false，结束后 true；
-- 中止路径与正常完成路径都必须恢复。
-
-`get_effective_state().occlusion_enabled` 必须来自实际 Viewport，和上述状态一致。
+verify 失败只输出错误并非零退出，绝不“顺手修”。
 
 ---
 
-## 5. C13-05 — 无效请求不能把仍然存在的当前地图“清空 UI”
+## 7. C13-05 — 清掉 authored 重复生成
 
-### 5.1 当前事实
+### 7.1 当前实测数据
 
-`MapManager` 已正确实现：
+当前 authored_spec.json：
 
-- 未知 map；
-- definition 非法；
-- scene path 缺失；
-- entry anchor 非法；
+- exclusions 总数：29
+- 精确重复 key：8 组
+- 多出来的重复 entry：8 个
 
-在**卸载旧图前**拒绝，并保持当前 READY 地图不变。
+8 组精确重复包括：
 
-`tests/test_map_lifecycle.gd` 也已经验证：当前 m01 READY 时请求 broken scene，MapManager 仍保持 m01 READY。
+- SC_W 建筑 1 组；
+- SC_S 建筑 1 组；
+- station forecourt 6 组。
 
-但 `main._on_map_failed()` 当前对所有 `map_failed` 一视同仁：
+此外 SC_ANNEX 有两份 x/z 完全一致但高度不同的 exclusion：
 
-- UI 设为“未加载地图”；
-- camera `unbind_map()`；
-- portals 清空。
+- 自动建筑 exclusion 高度约 9.1；
+- 手工特殊规则高度约 8.55。
 
-于是 manager 与 shell 会出现分裂：
+这不是“精确重复”，但仍是同一建筑的双权威。
 
-- MapManager：当前地图仍 READY；
-- 场景树：active_map_root 仍为 1；
-- Main/UI：认为没有地图；
-- Camera：合同被解绑。
+generated_spec exclusions=18，精确重复=0。
 
-### 5.2 修复语义
+### 7.2 几何根因
 
-利用现有 signal 已有的 `transaction_id` 语义，不新增第二套错误信号：
+build_authored._run 顶层已经调用：
 
-- **tx == 0**：请求在事务开始前被拒绝，当前 READY 图必须完整保留；
-- **tx > 0**：已进入加载/激活事务后失败，按当前空场景失败流程处理。
+- _service_court_static
+- _station_forecourt_static_common
+- _roof_terrace_static
 
-Main 收到 tx=0 且 manager 仍 READY 时：
+但 _service_court_static 末尾又调用一次 _station_forecourt_static_common。
 
-- 不清 map info；
-- 不 unbind camera；
-- 不清 portals；
-- 只显示 transient error。
+因此 station forecourt 静态几何也被写入同一 authored static mesh 两次。
 
-### 5.3 验收
+### 7.3 源头修复
 
-在 street READY：
+_station_forecourt_static_common 只由顶层调用一次。
 
-1. request unknown map；
-2. request broken scene；
-3. request nonexistent target anchor。
+_authored_building 增加一个最小参数：
 
-每次都要求：
+register_exclusion: bool = true
 
-- active_map_root=1；
-- current_map_id 仍 street；
-- camera 仍 bound；
-- map label 仍 street；
-- portal 列表仍有效；
-- 仅出现错误提示。
+然后：
 
-真正 activation failure 则仍必须清理为 EMPTY，不得为了修这个问题把失败实例留住。
+- SC_W：默认自动 exclusion，删除手工重复。
+- SC_S：默认自动 exclusion，删除手工重复。
+- SC_ANNEX：register_exclusion=false，只保留手工特殊高度 exclusion。
+- 拱门、树带、车棚、设备箱、街面道具等特殊盒继续手工定义。
 
----
+禁止在 assemble 阶段“静默 dedupe”来掩盖生成器错误。
 
-## 6. C13-06 — 固定机位快捷键必须覆盖当前实际锚点数
+### 7.4 预期数量
 
-### 6.1 当前事实
+在不新增其他 exclusion 的前提下：
 
-当前街区 `MapDefinition.anchor_names` 有 7 个：
+- authored 29
+- 删除 8 个精确重复 extra
+- 再删除 1 个 SC_ANNEX 自动重叠盒
+- 预计 authored = 20
+- generated = 18
+- 最终 street exclusions 预计 = 38
 
-- repair_shop_view
-- station_view
-- street_view
-- repair_shop_door
-- roof_terrace_view
-- service_court_view
-- station_forecourt_view
+实施时以真实重建输出为准。如果不是 38，必须解释差异；硬门槛仍是“精确重复=0、每个特殊重叠有明确语义”。
 
-README 也写“街区 7 个 / 店内 4 个”。
+### 7.5 revision
 
-`ToolUI.set_anchor_hint()` 会按数组真实长度显示 `1=... 7=...`。
+street 实际几何与 lightmap 输入改变：
 
-但 `main._handle_key()` 只匹配：
+m01_afterglow content_revision：1.2.0 → 1.3.0
 
-`KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6`
+interior 若本章不改几何/锚点/walk surface：
 
-所以第 7 个提示是假的。
+m01_repair_interior 保持 1.2.0
 
-### 6.2 修复方案
-
-不要继续逐个堆 `match KEY_1...KEY_N`。
-
-建立一个单一快捷键表，支持至少 1–9：
-
-- `ANCHOR_KEYS = [KEY_1 ... KEY_9]`
-- key → index；
-- index < `camera_ctl._anchor_order.size()` 才调用。
-
-ToolUI 只展示可通过这张表实际访问的机位；若将来超过 9 个锚点，数字键只显示前 9 个，其余通过菜单/未来摄影工作台访问，避免 UI 再次承诺不存在的按键。
-
-### 6.3 验收
-
-- street 1–7 全部可切；
-- interior 1–4 全部可切；
-- 8/9 在当前地图无对应锚点时不报错、不越界；
-- UI 提示与真实键位一致。
+不要为了章节号整齐无意义地让室内书签全部过期。
 
 ---
 
-## 7. C13-07 — 书签修订提示改为相对当前地图版本判断
+## 8. C13-06 — 画质档与地图级 occlusion 的唯一权威
 
-### 7.1 当前事实
+### 8.1 当前问题
 
-`BookmarkStore` 正确保存：
+SettingsManager._apply_profile 真实应用：
 
-- map_id；
-- content_revision；
-- created_utc；
-- pose。
+- render scale
+- MSAA/FXAA
+- frame cap
 
-问题在 `ToolUI.set_bookmarks()`：
+MapRoot.apply_quality 负责：
 
-当前把 `rev != "1.1.0"` 当作“旧版本”。
+- particles
+- runtime fill lights
+- optional probes
+- bake-only light 隐藏
+- glow
+- detail prop range
 
-因此在当前 1.2.0 地图中新建书签，也会显示 `[r1.2.0]`，与注释“旧版本书签提示”相反。
+但 READY 后切 Eco/Balanced 不会重新调用 MapRoot.apply_quality。
 
-### 7.2 修复边界
+另外：
 
-不要让 UI 自己猜当前 revision。
+- street definition occlusion_enabled=true；
+- interior definition occlusion_enabled=false；
+- main._on_quality_changed 当前无条件把 Viewport occlusion=true；
+- BenchmarkRunner._finish 也硬恢复 true。
 
-推荐由 main/MapManager 提供当前地图 revision，二选一：
+### 8.2 权威关系
 
-**方案 A（优先）**
+固定为：
 
-`ToolUI.set_bookmarks(entries, current_revision)`
+| 状态 | 权威 |
+| --- | --- |
+| render scale / AA / FPS / particles / probes / extra lights / glow / detail range | data/quality/*.json，经 SettingsManager 应用 |
+| 地图默认 occlusion | MapDefinition.occlusion_enabled |
+| benchmark 临时 occlusion on/off | BenchmarkRunner 单轮覆盖 |
+| benchmark 结束 | 恢复进入 benchmark 前的实际值 |
+| 无活动地图 | project.godot 的 rendering/occlusion_culling/use_occlusion_culling 默认值 |
 
-UI 只做：
+### 8.3 SettingsManager 实施
 
-- rev 为空：不加版本提示；
-- rev == current_revision：不加提示；
-- rev != current_revision：追加 `[rX]` 或“旧版本 rX”。
+不让 MapManager再订阅一套 quality_changed，避免两个控制者。
 
-**方案 B**
+SettingsManager._apply_profile 的完整顺序：
 
-Main 在传入 UI 前给每项增加 `is_stale_revision` 布尔值，UI 不比较版本字符串。
+1. 设置 current_quality/current_profile。
+2. 应用 Viewport scale/AA。
+3. 应用有效 FPS。
+4. 调用私有 _apply_to_active_map_if_present()。
+5. 所有真实状态完成后，emit quality_changed(..., get_effective_state())。
 
-两种都可以；只实现一种，不保留硬编码兼容分支。
+_apply_to_active_map_if_present：
 
-### 7.3 加载行为
+- 从 active_map_root 组找当前 MapRoot；
+- 0 个：no-op；
+- 1 个：调用 apply_to_map；
+- >1 个：push_error，返回错误（这是生命周期违约）。
 
-旧版本书签**不禁止加载**：
+SettingsManager.apply_to_map(map_root)：
 
-- 仍由 ObserverCamera 校验 map_id / bounds / exclusions；
-- 可用则加载；
-- 已失效则显示现有“位置不可用”提示。
+1. MapRoot.apply_quality(current_profile)；
+2. 读取 map_root 的地图 occlusion 默认值；
+3. 应用 Viewport.use_occlusion_culling；
+4. 返回 Error。
 
-revision 是提示与诊断信息，不变成强制迁移系统。
+MapRoot 增加只读：
 
-### 7.4 验收
+get_occlusion_enabled() -> bool
 
-在 street 1.3.0：
+### 8.4 MapManager 激活
 
-- 新建 1.3.0 书签：不显示旧版标签；
-- 构造 1.2.0 书签：显示旧版本；
-- 构造空 revision 旧数据：可显示但不误判；
-- 加载合法旧书签仍可成功。
+MapManager 激活时仍显式调用 _quality.apply_to_map(map_root)。
 
-interior 如果仍为 1.2.0，同理按 1.2.0 比较，证明实现没有把章节号当全局常量。
+原因：地图刚进入树时可能没有发生新的 quality_changed，必须把当前档位作用到新图。
+
+### 8.5 Main
+
+main._on_quality_changed 只做 ToolUI 状态同步。
+
+删除：
+
+Viewport.use_occlusion_culling = true
+
+### 8.6 卸载
+
+进入 EMPTY 后恢复 project default occlusion，而不是硬编码 true：
+
+ProjectSettings.get_setting("rendering/occlusion_culling/use_occlusion_culling", true)
+
+### 8.7 验收
+
+街区：
+
+Eco → Balanced → Eco 时，MapRoot 内真实节点与 glow/detail range 随档切换；occlusion 始终 true。
+
+室内：
+
+Eco → Balanced → Eco 时，地图内质量项随档切换；occlusion 始终 false。
+
+地图切换：
+
+street → interior → street = true → false → true。
+
+get_effective_state 必须反映实际 Viewport/MapRoot 状态，不是配置回显。
 
 ---
 
-## 8. C13-08 — 门户图关系在 verify 阶段一次性验证完整
+## 9. C13-07 — BenchmarkRunner 正确性修复
 
-### 8.1 当前事实
+### 9.1 当前三个确定性错误
 
-`MapDefinition.validate()` 能验证 portal 字段结构：
+#### 错误 A：报告读取了恢复后的状态
 
-- pos；
-- radius；
-- target_map_id 非空；
-- target_anchor 非空；
-- label 非空。
+_finish 当前先 restore user quality、恢复 occlusion，再调用 _write_outputs。
 
-`verify_build.gd` 对 walk 图当前额外检查目标 `map_definition.tres` 文件存在。
+而 _write_outputs 内部 _environment_info 会读取当前实时：
 
-但还没有验证：
+- render_scale
+- frame_cap
+- vsync
+- occlusion_enabled
 
-- target map 是否真的在生产 registry；
-- target definition 是否可加载/validate；
-- `target_anchor` 是否存在于目标的 `anchor_names`。
+于是报告可能写的是用户恢复后的环境，不是刚才测量环境。
 
-当前两条生产门户数据本身是正确的，但验证层不完整。
+#### 错误 B：headroom FPS 恢复顺序错误
 
-### 8.2 修复
+start_run 先切 benchmark profile，再保存 _saved_max_fps。
 
-在 verify 中建立 registry → MapDefinition 轻量表，只读取 definition，不加载目标大场景。
+例如用户 Eco 30 → benchmark Balanced 60：
 
-对所有生产地图（不只 walk 图）遍历 portals：
+- set Balanced 后 Engine.max_fps=60
+- 保存 60
+- headroom 设 0
+- finish 恢复 Eco → 30
+- 随后又写回 saved 60
 
-- target_map_id 必须在 registry；
-- target definition validate 通过；
-- target_anchor 必须存在；
-- portal radius/label 已由 MapDefinition.validate 保证。
+最终用户 Eco 标签下可能变成 60 FPS。
 
-这样以后新增 fly→fly、fly→walk 门户也会得到同一检查，不把 portal verify 特判锁死在室内图。
+#### 错误 C：main 永久删除用户 settings.cfg
 
-### 8.3 验收
+_run_automation_perf 为了“保证确定”直接删除 user://settings.cfg。
 
-- 当前 street → interior 通过；
-- interior → street 通过；
-- 测试 fixture 中 target anchor 拼错必须让 verify/合同测试失败；
-- 不需要为了验证 portal 加载目标 3D scene。
+Benchmark 本来已经有 persist=false + runtime snapshot，不应破坏用户偏好文件。
 
----
+### 9.2 measured snapshot
 
-## 9. C13-09 — 验收证据必须能从干净仓库复核
+BenchmarkRunner 增加：
 
-### 9.1 当前断链
+- _measured_environment: Dictionary
+- _measured_map_state: Dictionary
+- _saved_vsync
+- _saved_occlusion
 
-本轮审阅确认：
+开始流程：
 
-- `.gitignore` 全局忽略 `*.log`；
-- `docs/chapter1_2/review.md` / handoff 多处引用 `regression_*.log`；
-- 当前 `main` 并不存在这些 log；
-- README 指向 `artifacts/chapter1_2/perf_street.log`，该文件也不在仓库；
-- v9 最终视觉 PNG 已提交，但没有与最终 v9 一一对应的 CaptureService JSON 元数据；
-- 较早 v3/v5/v6 有 JSON，说明元数据链本身已经具备，只是最终证据整理时丢了配对。
+1. 校验 map/route/config。
+2. 申请 ActivityGuard。
+3. 快照用户 quality/camera/ambient/vsync/occlusion。
+4. set_profile(target,false)，确保完整 map quality 已生效。
+5. 应用 benchmark occlusion override。
+6. 如 headroom，关闭 VSync、Engine.max_fps=0。
+7. 等实际设置稳定一个 process frame。
+8. 冻结 _measured_environment 与 _measured_map_state。
+9. 开始 warmup/sample。
 
-这不推翻 chapter1-2 的实现结果，但会降低“从干净检出独立复核”的可信度。
+写输出只使用这两个测量快照。
 
-### 9.2 证据策略
+### 9.3 restore 顺序
 
-不要解除所有 `*.log` 忽略规则，也不要把大量临时终端日志塞进仓库。
+结束/中止统一：
 
-chapter1-3 增加**结构化、可提交的最终摘要**：
+1. 停采样。
+2. 先保存统计与 measured snapshot 到输出内存结构。
+3. 恢复 VSync。
+4. restore_runtime_state(user quality)，让它成为 FPS 唯一恢复权威。
+5. 恢复 saved occlusion（或由恢复后的当前地图默认再次确认，二者应相同）。
+6. 恢复 camera/ambient/input。
+7. release guard。
+8. 最终写文件。
+9. emit completed/aborted。
 
-`artifacts/chapter1_3/`
+删除 _saved_max_fps；不要再维护第二份 FPS 权威。
 
-至少保留：
+### 9.4 output path 安全
 
-- `verification_summary.json`：各测试命令、exit code、关键计数、commit SHA；
-- `verification_summary.md`：人工可读索引；
-- `performance/summary.csv` 与各有效轮次 `summary.json`；
-- `screenshots/`：最终 Eco/Balanced PNG + 同名 JSON；
-- `export_check.md`：导出版本、SHA256、独立目录、中文+空格路径、门户往返结果；
-- 必要 bake report JSON。
+现有 output_directory 只用 begins_with("user://benchmarks") 不够严格。
 
-临时 verbose log 继续不入库。
+规范化后只允许：
 
-### 9.3 Build ID
+- user://benchmarks
+- user://benchmarks/...
 
-执行最终验收前设置统一 `NEON_BUILD_ID` 为当前 commit 短 SHA 或明确 release candidate ID，使：
+拒绝：
 
-- screenshot JSON；
-- benchmark JSON；
-- build manifest；
-- verification summary
+- user://benchmarks_evil
+- user://benchmarks/../outside
 
-可以互相关联。
+run_id 禁止路径分隔符与 ..，只允许简短安全字符集。
 
-### 9.4 bake report 输出目录
+虽然后台自动化当前自己生成 run_id，但公共接口既然存在，就把合同做完整。
 
-`bake_plugin.gd` 目前硬编码 `artifacts/chapter1_2`。既然本章已经必须修改该插件的成功判定，应顺手消除这个章节硬编码。
+### 9.5 build_id
 
-建议：
+Benchmark run.json/summary.json/environment 增加 build_id：
 
-- 支持 `NEON_ARTIFACT_DIR`；
-- wrapper 在本章最终验证时指向 `res://artifacts/chapter1_3`；
-- 未设置时使用稳定通用目录，例如 `res://artifacts/build`；
-- 不再每进入一个 chapter 就修改插件常量。
-
-### 9.5 验收
-
-从干净 checkout 只看仓库即可回答：
-
-- 哪个 commit 被验收；
-- 两图 verify 是否通过；
-- lifecycle/contract 各多少项；
-- bake expected/actual/missing；
-- 最终截图属于哪个 map/profile/revision；
-- 性能样本来自什么环境；
-- Windows export 是否实测；
-- 仍有哪些人工项未做。
-
-文档不得再链接一个被 gitignore 丢弃、仓库中不存在的文件作为唯一证据。
+优先 OS.get_environment("NEON_BUILD_ID")，为空时记录 "unknown"，不伪造 commit。
 
 ---
 
-## 10. C13-10 — 收掉 chapter1-1 / 1-2 遗留的性能与发布门槛
+## 10. 性能路线：明确 route 与 map 的兼容关系
 
-本章不把“已有 backlog”重复写成新功能，而是作为工程完整性门槛执行。
+### 10.1 当前缺口
 
-### 10.1 性能
+PerfRoutes 只有 street 坐标，但 main 已支持 --perf --map <id>。
 
-#### Street
+如果传 interior，BenchmarkRunner 会直接调用 set_route_transform 使用 street 世界坐标，而这个接口刻意绕过相机 bounds 校验。
 
-完成 `expanded_v11`：
+所以 route 必须声明适用地图。
 
-- Eco ×3；
-- Balanced ×3；
-- 默认 occlusion；
-- 另做至少一轮 `--occlusion off` 对照；
-- 每轮 60s steady；
-- 15s warmup；
-- 保持前台，失焦轮次无效；
-- 使用 `sample_process.ps1` 对正式导出进程补 WorkingSet / PrivateBytes。
+### 10.2 PerfRoutes 单一数据结构
 
-由于 C13-02 会改变 street authored/lightmap 输入，旧性能记录只能作为历史对照，不能直接作为 chapter1-3 最终值。
+把当前并行的 ROUTES + SEGMENT_SECONDS 收敛成一个 ROUTE_SPECS：
 
-#### Interior
+每个 route 定义：
 
-新增一条最小稳定路线或固定姿态稳态采样：
+- map_id
+- segment_seconds
+- segments
 
-- 不需要为了室内强行套用 street `expanded_v11`；
-- 60s；
-- Eco / Balanced 至少各 1 个有效轮次；
-- 默认 occlusion=false；
-- 如做 on 对照，报告中明确是实验覆盖。
+公开只读 helper：
 
-### 10.2 Windows Release / G6
+- has_route(route_id)
+- route_map_id(route_id)
+- route_duration(route_id)
+- route_transform(route_id,t)
+- segment_id(route_id,t)
 
-按当前 `export_presets.cfg` 重新导出 chapter1-3 release candidate。
+已有：
 
-要求：
-
-1. 从干净检出/干净构建链导出；
-2. 复制 EXE + PCK 到一个**包含中文和空格**的独立目录；
-3. 不依赖项目 `.godot/`；
-4. 启动进入 street；
-5. street 菜单/锚点可用；
-6. F 门户进入 interior；
-7. 步行、楼梯、返回 street；
-8. 至少 3 次人工往返；
-9. Eco / Balanced 都能切换；
-10. F12 生成 PNG+JSON；
-11. 退出无阻塞。
-
-`build/` 继续被 Git 忽略，不提交二进制；只提交 export check、文件 SHA256、文件大小和实测结果。
-
-### 10.3 人工体验
-
-chapter1-2 尚未完成的人工项在本章一次收口：
-
-- F 门接近开合是否自然；
-- 门户提示是否遮挡构图；
-- interior 楼梯上/下楼节奏；
-- 边缘阻挡是否出现明显“吸墙/卡角”；
-- street fly 7 个锚点；
-- interior 4 个锚点；
-- 手动自由摄影不看到明显世界空洞/背面；
-- UI 隐藏/恢复、菜单、书签、截图。
-
-这些属于人工门槛，不用伪装成 headless 自动测试。
-
----
-
-## 11. C13-11 — 文档同步，但必须最后写结论
-
-### 11.1 当前已确认的文档漂移
-
-#### docs/environment.md
-
-仍写：
-
-- export template 未安装；
-- 系统字体栅格化招牌；
-- 更新日期 2026-09-19。
-
-这与后续仓库状态/README/handoff 不一致。
-
-#### tools/README.md
-
-仍包含明显 1.1 时代描述：
-
-- “六机位”；
-- bake report 指向 chapter1_1；
-- 单步 bake 命令仍以 street 默认场景为主；
-- 测试列表未完整包含 chapter1-2；
-- 对双图 `-MapId both` 的说明不足。
-
-#### README / review / handoff
-
-存在对仓库中不存在 `*.log` 的引用；需改为 chapter1-3 的结构化证据。
-
-### 11.2 更新顺序
-
-文档必须在最终测试之后按真实结果更新：
-
-1. `docs/chapter1_3/review.md`（新增最终验收记录）；
-2. `docs/handoff.md`；
-3. `docs/backlog.md`；
-4. `docs/environment.md`；
-5. `tools/README.md`；
-6. 根 `README.md`；
-7. 必要时 `AGENTS.md` 只修事实漂移，不扩新范围。
-
-如果 G5/G6 某项仍没跑，写 NOT_RUN/待验证，不能为了“文档整齐”写成 PASS。
-
----
-
-## 12. 实施工作包
-
-### WP0 — 冻结基线与可复核证据格式
-
-**目标**
-
-- 记录 main commit；
-- 新建 chapter1-3 artifact 目录规则；
-- 记录当前双图 manifests、exclusion 数、authored triangle 日志基线；
-- 不改场景。
-
-**完成条件**
-
-- 有 machine-readable verification summary 模板；
-- 当前已知缺陷能在摘要中标为 baseline-known-failure，而不是被遗漏。
-
----
-
-### WP1 — 修烘焙成功判定与 manifest
-
-涉及：
-
-- `addons/neon_bake/bake_plugin.gd`
-- `tools/assemble_m01.gd`
-- `tools/assemble_interior.gd`
-- `tools/verify_build.gd`
-- 必要合同测试
-
-**完成条件**
-
-- missing>0 必然 NEON_BAKE_EXIT=1；
-- failed manifest 不会继续伪装 succeeded；
-- expected/actual/missing 可持久化；
-- verify 独立检查 expected⊆actual。
-
-WP1 必须先于任何“重新烘焙”，否则后续烘焙仍使用不可信门槛。
-
----
-
-### WP2 — 修 authored 重复生成并重建 street
-
-涉及：
-
-- `tools/build_authored.gd`
-- street generated outputs / authored spec / map definition / manifest / lightmap
-- street content_revision
-
-**完成条件**
-
-- station forecourt 静态几何只生成一次；
-- exclusion 精确重复=0；
-- street revision=1.3.0；
-- bake missing=0；
-- verify 通过；
-- 七机位两档视觉无回归。
-
----
-
-### WP3 — 修实时质量档与 occlusion 权威链
-
-涉及：
-
-- `scripts/app/settings_manager.gd`
-- `scripts/maps/map_manager.gd`
-- `scripts/app/main.gd`
-- `scripts/diagnostics/benchmark_runner.gd`
-- tests
-
-**完成条件**
-
-- 已加载地图 Eco/Balanced 实时完整切换；
-- street true / interior false；
-- benchmark override 可覆盖且可恢复；
-- effective_state 与真实状态一致。
-
----
-
-### WP4 — 修小型用户可见/错误状态合同
-
-涉及：
-
-- `scripts/app/main.gd`
-- `scripts/app/tool_ui.gd`
-- `tools/verify_build.gd`
-- tests
-
-内容：
-
-- invalid request 不清当前 READY 图；
-- 1–9 通用 anchor hotkey；
-- bookmark stale revision 相对当前地图；
-- portal target anchor verify。
-
-**完成条件**
-
-四项都有自动测试或确定的集成测试步骤，不仅靠人工点击。
-
----
-
-### WP5 — 新增 chapter1-3 回归测试
+- legacy_v1 → m01_afterglow
+- expanded_v11 → m01_afterglow
 
 新增：
 
-`tests/test_chapter13_contract.gd`
+- interior_v13 → m01_repair_interior
 
-建议测试矩阵：
+### 10.3 interior_v13
 
-| ID | 验证 |
+60 秒，四段各 15 秒：
+
+1. entry
+2. workbench
+3. gallery
+4. dining
+
+优先使用固定/极小安全移动，不在 benchmark 中重新实现 walk navigation。
+
+路线必须使用已通过的最终机位空间，不穿墙、不跨楼插值。
+
+### 10.4 校验
+
+BenchmarkRunner.start_run：
+
+route 不存在 → ERR_INVALID_PARAMETER。
+
+route_map_id != 当前 READY map_id → ERR_INVALID_PARAMETER，并输出可读原因。
+
+capped 正式路线 duration=60；route_duration 也必须覆盖 60 秒。
+
+### 10.5 warmup
+
+删除 main 中额外的固定 15 秒外层 timer。
+
+warmup 只由 BenchmarkRunner config 控制。
+
+为保证 ×3 可比较，默认每轮都 warmup 15 秒；用户明确 --warmup 0 才关闭。不要只在 r==0 设置 warmup、后两轮为 0。
+
+---
+
+## 11. C13-08 — MapManager timeout orphan 必须能收尾
+
+### 11.1 当前根因
+
+加载超时时：
+
+- _process 把 path 放入 _orphan_paths；
+- 随后 _fail_load 调用 set_process(false)。
+
+这样 orphan 的 threaded load 不再被轮询，path 永远留在字典；之后再请求同一路径会一直 ERR_BUSY。
+
+### 11.2 修复
+
+_fail_load 不再无条件 set_process(false)。
+
+统一规则：
+
+- state == LOADING → 必须 process；
+- _orphan_paths 非空 → 必须 process；
+- 只有“非 LOADING 且 orphan 为空”才能 set_process(false)。
+
+建议抽一个极小私有 helper：
+
+_update_process_enabled()
+
+所有状态变化后调用，避免多个分支各写一套布尔逻辑。
+
+### 11.3 验收
+
+需要一个可控测试，不依赖真的让大资源卡 30 秒。
+
+允许给 MapManager 增加测试可注入的 timeout 或测试 helper，但生产默认仍 30s。优先方案：
+
+- var load_timeout_sec := 30.0
+- setup 测试后可 set 为极小值；正式代码不从用户配置暴露。
+
+用 fixture 触发/模拟 orphan 后：
+
+- 失败信号收到；
+- orphan 最终被清除；
+- 同 path 后续不永久 ERR_BUSY。
+
+不要为了测试修改正常 threaded load 语义。
+
+---
+
+## 12. C13-09 — preflight 失败不能破坏当前 READY shell
+
+### 12.1 当前事实
+
+MapManager 对未知 ID、坏 definition、缺 scene、坏 entry anchor 都在卸载前拒绝，map_failed transaction_id=0，并保持当前图。
+
+但 Main._on_map_failed 当前总是：
+
+- 显示未加载；
+- unbind camera；
+- 清 portals。
+
+### 12.2 信号语义固定
+
+沿用已有 transaction_id，不增加第二套 signal：
+
+- tx == 0：preflight rejection，没有开始切图事务。
+- tx > 0：加载/激活事务已经发生。
+
+Main 收到 tx==0 且 MapManager 仍 READY：
+
+- 保持 loading overlay 隐藏；
+- 保持当前 map info；
+- 保持 camera binding；
+- 保持 anchors/portals；
+- 仅 show_transient_message("加载失败：...")。
+
+tx>0 且 manager 回 EMPTY：
+
+- 执行当前完整清空逻辑。
+
+### 12.3 验收
+
+street READY 时依次请求：
+
+- unknown map
+- broken scene
+- nonexistent entry anchor
+
+每次：
+
+- active_map_root=1
+- current_map_id=street
+- camera.is_bound=true
+- anchor order 不变
+- portal 列表不变
+- map label 不变
+- UI 只出现错误提示
+
+activation failure 的旧测试继续要求清理到 EMPTY。
+
+---
+
+## 13. C13-10 — 自动化必须有失败出口
+
+### 13.1 当前死等
+
+_run_automation_shoot / _run_automation_perf：
+
+await _await_map_ready()
+
+而 _await_map_ready 只循环 state != READY，没有：
+
+- timeout；
+- map_failed；
+- EMPTY failure；
+- last_error 检查。
+
+坏 --map 可以永久挂住进程。
+
+### 13.2 接口
+
+改为：
+
+_await_map_ready(timeout_sec: float = 35.0) -> Error
+
+规则：
+
+- READY → OK
+- ERROR/EMPTY 且 last_error 非空 → ERR_CANT_OPEN 或 ERR_INVALID_PARAMETER
+- 超时 → ERR_TIMEOUT
+
+_ready 自动化入口在 request_map 时先检查返回 Error；同步 preflight 失败立即 quit(1)，不进入 await。
+
+### 13.3 screenshot 自动化不能静默跳图
+
+当前 _shoot_anchors 截图两次失败后只 warning，最后仍 SHOOT_DONE/exit0。
+
+改为返回 Error/结果对象：
+
+- go_to_anchor false → fail
+- request_capture 最终非 OK → fail
+- capture_failed signal → fail
+- 诊断图失败 → fail
+- 任何要求的最终图缺失 → 整轮 automation exit 1
+
+只有全部目标成功才打印 SHOOT_DONE。
+
+### 13.4 quality 参数
+
+_tier_args 后必须逐项验证 profile 存在。
+
+--quality nonsense 不能用旧 profile 渲染却把文件命名为 nonsense。
+
+---
+
+## 14. C13-11 / C13-12 — 锚点接口与 capture anchors 真正落地
+
+### 14.1 禁止外部读 _anchor_order
+
+当前 Main 多处直接读取 camera_ctl._anchor_order。
+
+给 ObserverCamera 增加：
+
+- get_anchor_order() -> PackedStringArray（副本）
+- go_to_anchor_index(index: int) -> bool
+
+Main、UI、automation 只走公开接口。
+
+### 14.2 数字键
+
+统一 ANCHOR_KEYS = 1..9。
+
+不再 match 写死 KEY_1..KEY_6。
+
+规则：
+
+- index 在当前 anchor 数组内 → 切换。
+- 超界 → no-op。
+- ToolUI 最多显示前 9 个数字快捷键。
+- 将来 >9 个锚点时，额外锚点不伪造数字键提示。
+
+当前验收：
+
+- street 1–7 全可达。
+- interior 1–4 全可达。
+- 8/9 无锚点时安全 no-op。
+
+### 14.3 capture_anchor_names
+
+MapDefinition 已经存在 get_capture_anchor_names，但截图自动化从未使用它。
+
+MapManager.get_camera_contract 增加：
+
+capture_anchor_ids
+
+来自 def.get_capture_anchor_names()。
+
+MapDefinition.validate 增加：
+
+- anchor_names 不允许重复；
+- capture_anchor_names 非空时不允许重复；
+- capture_anchor_names 每项必须存在于 anchor_names。
+
+自动截图：
+
+- 使用 capture_anchor_ids；
+- 交互快捷键仍使用 anchor_ids。
+
+当前两图 capture list 为空，因此自动回落全部 anchors，不改变现有预期，只把接口真正接通。
+
+---
+
+## 15. C13-13 — 书签版本提示使用当前地图 revision
+
+ToolUI.set_bookmarks 改成唯一方案：
+
+set_bookmarks(entries: Array, current_revision: String)
+
+规则：
+
+- entry revision == current revision → 不显示额外标签。
+- entry revision 非空且不同 → 显示 [旧 rX]。
+- entry revision 为空 → 显示 [旧 未知]，但不拒绝加载。
+
+Main._refresh_bookmark_menu 传：
+
+map_manager.get_current_content_revision()
+
+旧版本书签仍交给 ObserverCamera.validate_pose 决定是否能加载；revision 只提示兼容风险，不做强制迁移。
+
+street 升 1.3.0 后：
+
+- street 1.2.0 bookmark 标旧；
+- 新 1.3.0 不标旧。
+
+interior 保持 1.2.0：
+
+- interior 1.2.0 不标旧。
+
+---
+
+## 16. C13-14 / C13-16 — Registry 与 Portal 完整性
+
+### 16.1 registry 原子加载
+
+MapManager.load_registry_file 不应边解析边写 _registry。
+
+新语义：
+
+1. 解析 JSON。
+2. schema_version 必须为 1。
+3. maps 必须为 Array。
+4. 每个 map_id 非空且唯一。
+5. definition_path 必须 res:// 且唯一性/存在性合理。
+6. definition 可加载。
+7. definition.validate 通过。
+8. definition.map_id 必须与 registry map_id 相同。
+9. 全部通过后一次性替换 _registry/_definitions。
+10. 任一失败 → 返回 false，保留旧 registry（若有），不留下半加载状态。
+
+### 16.2 request 防御
+
+_validate_request 再做 def.map_id == requested map_id 的防御校验。
+
+### 16.3 Portal 图关系
+
+verify 对所有 production definitions 的 portals 检查：
+
+- target_map_id 在 registry；
+- target definition validate 通过；
+- target_anchor 在 target.anchor_names；
+- 不需要加载目标 3D scene。
+
+当前：
+
+street → interior / entry_view  
+interior → street / repair_shop_door
+
+都必须通过。
+
+### 16.4 verify 不再静默跳过新增地图
+
+当前 verify 有硬编码 MAP_CONFIGS，registry 新增未配置 map 时可能不进入验证。
+
+1.3 后：
+
+- 主枚举权威是 data/map_registry.json；
+- scene/definition 从 MapDefinition 取得；
+- manifest 默认 maps/<map_id>/build_manifest.json；
+- walk、portal、region 等特殊检查根据 definition 字段触发；
+- 不以 map_id hardcode 决定“要不要验”。
+
+如果未来某地图确需特殊制作元数据，应在 manifest/definition 增加明确字段，而不是悄悄加 MAP_CONFIGS 分支。
+
+---
+
+## 17. C13-15 — CaptureService abort 收尾
+
+### 17.1 当前根因
+
+abort_capture 只把 _request_id=0。
+
+_run_capture 下一次 await 回来发现 request invalid，会 cleanup 后 return，但这些早退分支没有把 _busy=false。
+
+结果：调用 abort 后服务可能永久 ERR_BUSY。
+
+### 17.2 修复
+
+把请求收尾集中到一个幂等 finish helper：
+
+- 恢复 UI；
+- 恢复 camera input；
+- 释放 guard token；
+- _busy=false；
+- _request_id=0；
+- 成功时 emit completed；
+- 失败/取消时 emit failed 一次。
+
+abort 保存 cancel reason，下一继续点走统一 ERR_CANCELED 失败收尾。
+
+不要在多个 return 分支分别手工清 busy/token。
+
+### 17.3 验收
+
+- 正常成功后 is_busy=false。
+- PNG 写失败后 is_busy=false。
+- JSON 写失败后 is_busy=false。
+- abort 后最终 is_busy=false，guard 空闲。
+- abort 旧请求不能在下一请求完成后再次写盘或发 success。
+
+---
+
+## 18. C13-17 — 删除旧烘焙平行路径与死资产
+
+### 18.1 当前候选
+
+当前生产路径明确使用 maps/<map_id>/baked/map_lightmap.res，但 street 目录仍有早期根级产物：
+
+- maps/m01_afterglow/map_lightmap.res
+- maps/m01_afterglow/map_lightmap.exr
+- maps/m01_afterglow/map_lightmap.exr.import
+
+当前 tree 中旧 root EXR 约 13.3 MB，而当前 baked EXR 约 16.8 MB；两套并存没有意义。
+
+另有：
+
+- maps/m01_afterglow/meshes/authored_props_mesh.res：当前代码搜索无引用，已被四个区域 props mesh 结构取代。
+- tools/bake_m01.gd：旧直接 LightmapGI.bake 单图脚本，输出 baked/lightmap_gi.res，与当前生产插件路径不同。
+- tools/run_bake.tscn：只服务旧 bake_m01。
+- tools/finalize_bake_manifest.gd：单图、chapter1_1 report path、重复一套 coverage/manifest 写逻辑。
+- authored/authored_input_hash.baseline：随 C13-04 移除。
+
+### 18.2 删除前硬条件
+
+不能凭文件名直接删。
+
+WP 清理时先执行：
+
+1. GitHub/本地文本引用搜索；
+2. ResourceLoader dependency closure 检查；
+3. 当前两张最终 scene 能加载；
+4. BuildContract 输入集合不依赖候选；
+5. 删除后 --headless --import + verify 全绿。
+
+全部满足才删除。
+
+### 18.3 保留
+
+保留 build_bake_probe.gd + fixture：它是最小烘焙 API/UV2 诊断工具，不是生产平行路径。
+
+保留本轮仍被 review/handoff 引用的 debug_sign_*、debug_grid_stats、sample_png_grid，除非后续单独证明完全无用。
+
+### 18.4 为什么要在本章清
+
+export_presets 使用 all_resources；即便 Godot 最终可能按过滤策略处理资源，旧大体积地图资源留在 maps 下仍会造成认知和发布风险。生产烘焙路径必须只有一个。
+
+---
+
+## 19. C13-18 — 最终证据格式
+
+### 19.1 不再提交 verbose log 作为唯一证据
+
+.gitignore 继续忽略 *.log。
+
+不取消这个规则。
+
+旧 docs 中对 regression_*.log、perf_street.log 的唯一引用要替换为结构化可提交摘要。
+
+### 19.2 artifacts/chapter1_3
+
+最终至少：
+
+- verification_summary.json
+- verification_summary.md
+- bake_report_*.json
+- screenshots/final/*.png
+- screenshots/final/*.json
+- performance/summary.csv
+- performance/<run_id>/summary.json
+- performance/process_<...>.csv
+- export_check.md
+
+临时过程截图/日志只有对排障有长期价值时才保留。
+
+### 19.3 build_id
+
+最终验收前设置统一 NEON_BUILD_ID。
+
+优先：
+
+- Git short SHA + rc 标识，例如 41aac56-rc1（真正实施时使用最终代码 SHA，不照抄此示例）。
+
+CaptureService.setup 由 main 传：
+
+OS.get_environment("NEON_BUILD_ID")
+
+为空则 metadata 写 unknown，不伪造。
+
+Benchmark 同样记录此值。
+
+### 19.4 bake artifact 目录
+
+移除 bake_plugin 的 chapter1_2 常量。
+
+支持：
+
+NEON_ARTIFACT_DIR
+
+要求：
+
+- 只允许 res://artifacts 下；
+- 未设置时 fallback res://artifacts/build；
+- build wrapper 在 chapter1-3 最终验收时设 res://artifacts/chapter1_3。
+
+---
+
+## 20. 最终截图验收
+
+当前两图 capture list 为空，回落所有锚点。
+
+最终截图固定数量：
+
+street：
+
+- 7 anchors × Eco/Balanced = 14
+- 每档 1 张 diag = 2
+- 合计 16 PNG + 16 JSON
+
+interior：
+
+- 4 anchors × Eco/Balanced = 8
+- 每档 1 张 diag = 2
+- 合计 10 PNG + 10 JSON
+
+总计：
+
+- 26 PNG
+- 26 同名 JSON
+
+每个 JSON 必须含：
+
+- map_id
+- content_revision
+- anchor_id
+- profile_id
+- effective_state
+- image dimensions
+- engine_version
+- gpu_adapter
+- build_id
+- render_stats
+
+任何缺一张都不允许 SHOOT_DONE 成功。
+
+视觉重点：
+
+- street 清重复几何后 7 机位无缺面/z-fighting/漏光；
+- repair_shop_door 入口保持清晰；
+- interior gallery_view 保持 chapter1-2 v9 已通过的三层构图；
+- Eco/Balanced 不因质量链修复出现不可接受构图差异。
+
+---
+
+## 21. 性能最终验收
+
+### 21.1 street
+
+expanded_v11：
+
+- Eco ×3 valid
+- Balanced ×3 valid
+- 每轮 warmup 15s
+- steady 60s
+- default occlusion=true
+
+额外：
+
+- 至少 Eco 或 Balanced 各做一轮 --occlusion off 对照；最好两档各一轮，报告不与正式默认轮混算。
+
+### 21.2 interior
+
+interior_v13：
+
+- Eco ×3 valid
+- Balanced ×3 valid
+- warmup 15s
+- steady 60s
+- default occlusion=false
+
+额外可做 on 对照，必须标实验覆盖。
+
+### 21.3 外部进程采样
+
+使用 sample_process.ps1。
+
+至少保留四组代表性正式采样：
+
+- street Eco
+- street Balanced
+- interior Eco
+- interior Balanced
+
+记录：
+
+- WorkingSet64
+- PrivateMemorySize64
+- CPU 时间
+- PID + process start time 防复用
+
+不把引擎 MEMORY_STATIC 当 Windows 工作集。
+
+### 21.4 正式输出正确性
+
+每个 run.json/summary：
+
+- map_id 与 route_map_id 一致；
+- content_revision 正确；
+- build_id 正确；
+- measured profile 正确；
+- frame_cap 是测量期值；
+- render_scale 是测量期值；
+- occlusion_enabled 是测量期值；
+- VSync 是测量期值；
+- restore 后用户状态另行验证，不写进 measured environment。
+
+---
+
+## 22. Windows Release / G6
+
+### 22.1 构建
+
+用当前最终 commit 从完整流水线：
+
+generate → assemble → bake → verify → export
+
+不得拿 chapter1-1 的旧 build 作为 1.3 证据。
+
+### 22.2 独立目录
+
+复制 EXE + PCK 到例如：
+
+D:\霓湾 发布验证\Release Candidate\
+
+要求：
+
+- 路径包含中文；
+- 路径包含空格；
+- 不依赖项目目录 .godot；
+- 不依赖 Python/Blender/网络。
+
+### 22.3 人工检查
+
+至少：
+
+1. 启动进入 street；
+2. 1–7 锚点；
+3. Eco/Balanced 切换；
+4. 维修铺门接近自动开；
+5. F 进入 interior；
+6. walk 上楼/下楼；
+7. 1–4 室内锚点；
+8. F 返回 street；
+9. 至少 3 次双向门户往返；
+10. F1/F2/F12；
+11. 新建/加载/删除书签；
+12. F12 生成 PNG+JSON；
+13. 正常退出。
+
+export_check.md 记录：
+
+- build_id
+- commit SHA
+- exe/pck 文件大小
+- SHA256
+- 实际测试目录
+- 每项 PASS/FAIL/NOT_RUN
+- 失败现象
+
+build/ 二进制继续不提交 Git。
+
+---
+
+## 23. 文档同步
+
+代码与真实验收全部完成后再更新结论，不提前写 PASS。
+
+更新顺序：
+
+1. docs/chapter1_3/review.md（新增）
+2. docs/handoff.md
+3. docs/backlog.md
+4. docs/environment.md
+5. tools/README.md
+6. README.md
+7. docs/asset_sources.md（修正旧根 map_lightmap 路径）
+8. AGENTS.md 仅修事实漂移，不扩大范围
+
+明确修正：
+
+- environment 中“导出模板为空”的过期状态；
+- environment 中“系统字体制作、字体不随仓库”的旧描述；
+- tools README 的“六机位”；
+- tools README 的 chapter1_1 bake report 路径；
+- README 指向不存在 perf_street.log；
+- handoff/review 对被 gitignore 掉的 regression log 的唯一证据引用。
+
+---
+
+## 24. 实施工作包与严格顺序
+
+### WP0 — 冻结基线，不改生产数据
+
+产出：
+
+- 记录当前 commit/tree；
+- 记录两图 manifest；
+- 记录真实 baked user_count；
+- authored exclusions=29、8 组精确重复；
+- generated exclusions=18、0 精确重复；
+- 记录候选旧文件引用扫描；
+- 建立 artifacts/chapter1_3 目录约定。
+
+门槛：只记录，不修改。
+
+### WP1 — BuildContract + manifest v2
+
+涉及：
+
+- 新增 tools/build_contract.gd
+- assemble_m01.gd
+- assemble_interior.gd
+- verify_build.gd
+
+先完成纯依赖/signature/coverage helper 和测试，再迁 manifest。
+
+门槛：
+
+- dependency closure 可解释；
+- material/texture/import/mesh/light/settings 变化会改 hash；
+- no-op 重建 hash 稳定；
+- v1 不继承 succeeded。
+
+### WP2 — Assemble/Bake 原子状态机
+
+涉及：
+
+- 两 assemble
+- neon_bake plugin
+- build_chapter11.ps1
+
+门槛：
+
+- assemble 不会产生“空 bake + succeeded”；
+- bake 写空数据之前 manifest 已 running；
+- missing/save/report/manifest 任一失败均 exit1；
+- 成功时真实数据与 manifest 一致。
+
+### WP3 — Authored 去重 + ownership 保护 + 旧 baseline 移除
+
+涉及：
+
+- build_authored.gd
+- build_chapter11.ps1
+- 删除 authored_input_hash.baseline
+- street revision 1.3.0
+
+然后 street 必须重建+重烘。
+
+门槛：
+
+- authored exact duplicates=0；
+- 预计 authored exclusions=20、final street≈38；差异有解释；
+- build_m01 前后 authored ownership hash 不变；
+- 重烘 missing=0。
+
+### WP4 — Runtime quality / occlusion / lifecycle 修复
+
+涉及：
+
+- settings_manager.gd
+- map_root.gd
+- main.gd
+- map_manager.gd
+- capture_service.gd
+
+内容：
+
+- 完整质量档实时应用；
+- map occlusion；
+- orphan timeout；
+- preflight fail shell；
+- capture abort。
+
+门槛：T13 相关项全过，原 lifecycle 不退化。
+
+### WP5 — Camera / bookmarks / registry / portals / automation
+
+涉及：
+
+- camera_controller.gd
+- map_definition.gd
+- map_manager.gd
+- tool_ui.gd
+- main.gd
+- verify_build.gd
+
+门槛：
+
+- 1–9 key；
+- capture anchors；
+- bookmark revision；
+- registry atomic；
+- portal target anchor；
+- automation fail-fast。
+
+### WP6 — Benchmark 正确性 + interior route
+
+涉及：
+
+- benchmark_runner.gd
+- perf_routes.gd
+- main.gd
+
+门槛：
+
+- measured snapshot；
+- headroom restore；
+- settings file 不删除；
+- warmup 单一权威；
+- route-map mismatch 被拒；
+- interior_v13 可跑。
+
+### WP7 — 删除旧架构/死资产
+
+仅在 WP1–WP6 全绿后。
+
+候选删除：
+
+- root old street map_lightmap.res/exr/import
+- authored_props_mesh.res
+- bake_m01.gd + uid
+- run_bake.tscn
+- finalize_bake_manifest.gd + uid
+- authored_input_hash.baseline
+
+门槛：引用/依赖扫描为空、import/verify 全绿。
+
+### WP8 — 最终重建、视觉、性能、Release、人工巡走、文档
+
+顺序不可交换：
+
+1. clean import
+2. generate both
+3. assemble both
+4. bake both
+5. verify all
+6. lifecycle/ch11/ch12/ch13
+7. 最终截图
+8. 性能
+9. process sampling
+10. export
+11. 独立目录人工检查
+12. 文档
+13. 最终 Git clean 状态检查
+
+---
+
+## 25. tests/test_chapter13_contract.gd
+
+新增一套 1.3 专用合同测试，不把原测试塞成巨型文件。
+
+### 25.1 Build/manifest
+
+| ID | 测试 |
 | --- | --- |
-| T13-01 | street / interior MapDefinition 无精确重复 exclusion |
-| T13-02 | quality change 会重新应用活动 MapRoot |
-| T13-03 | street→interior→street 的 occlusion = true→false→true |
-| T13-04 | benchmark/临时 occlusion 恢复 helper 语义 |
-| T13-05 | anchor hotkey 1–9 映射，7 可达、越界安全 |
-| T13-06 | bookmark current/stale revision 标签 |
-| T13-07 | READY 下 invalid request 保留地图合同 |
-| T13-08 | portal target map + target anchor 完整校验 |
-| T13-09 | build manifest expected/actual/missing 正常集合通过 |
-| T13-10 | 构造 missing path 时 coverage 验证失败 |
+| T13-01 | BuildContract dependency path 可解析普通与 UID::fallback |
+| T13-02 | bake_input_hash no-op 稳定 |
+| T13-03 | mesh/material/texture/.import 任一变化可导致签名变化（fixture） |
+| T13-04 | expected⊆actual 时覆盖通过，actual 超集允许 |
+| T13-05 | expected 有 missing 时失败 |
+| T13-06 | manifest v1 不能复用 succeeded |
+| T13-07 | manifest v2 只有 hash+expected+真实 data 全一致才能 reuse |
 
-如果某测试因 EditorPlugin/headless 边界不能直接调用 bake plugin，应把“集合覆盖判定”提取为无编辑器依赖的纯 helper 或由 verify 路径测试，**不要为了测试方便复制第二份判定逻辑**。
+### 25.2 地图数据
 
-原有：
+| ID | 测试 |
+| --- | --- |
+| T13-08 | street/interior exclusion 无精确重复 |
+| T13-09 | anchor_names 唯一 |
+| T13-10 | capture anchors 是 anchor_names 子集 |
+| T13-11 | registry map_id 与 definition.map_id 一致、无重复 |
+| T13-12 | 双向 portal target map + anchor 存在 |
 
-- `test_map_lifecycle.gd`
-- `test_chapter11_contract.gd`
-- `test_chapter12_contract.gd`
+### 25.3 运行时
 
-全部继续跑，不删除、不缩小。
+| ID | 测试 |
+| --- | --- |
+| T13-13 | READY 图 Eco→Balanced→Eco 会改变地图内质量状态 |
+| T13-14 | street→interior→street occlusion true→false→true |
+| T13-15 | preflight invalid request 保留当前 camera/map/portal 合同 |
+| T13-16 | orphan 收尾后同 path 不永久 busy |
+| T13-17 | capture abort 最终 busy=false 且 guard 释放 |
+| T13-18 | anchor index 7 可达，8/9 无目标安全 |
+| T13-19 | bookmark current/stale/unknown revision 标签语义 |
+| T13-20 | automation wait READY 可 timeout/failure，不永久 await |
 
----
+### 25.4 Benchmark
 
-### WP6 — 性能、Windows 导出、人工巡走与文档收口
+| ID | 测试 |
+| --- | --- |
+| T13-21 | route-map mismatch 拒绝 |
+| T13-22 | measured_environment 在 restore 前冻结 |
+| T13-23 | headroom 恢复后 Eco 仍为 30、Balanced 仍为 60 |
+| T13-24 | output path traversal/run_id 路径字符拒绝 |
+| T13-25 | benchmark 前后 settings.cfg 内容 hash 不变 |
 
-顺序：
-
-1. 双图完整 verify；
-2. 四套合同/生命周期测试；
-3. street 七机位 Eco/Balanced 最终截图；
-4. interior 四机位 Eco/Balanced 最终截图；
-5. expanded_v11 ×3；
-6. interior 60s；
-7. process memory sampling；
-8. Windows Release；
-9. 中文+空格目录独立运行；
-10. 门户/楼梯/摄影人工检查；
-11. 写 review/handoff/backlog/environment/tools README/root README。
-
-只有完成到第 10 步，才能把 chapter1-3 标为“工程收口完成”。
-
----
-
-## 13. 最终自动化验收命令
-
-实际 Godot 路径使用 `-GodotExe` 或 `NEON_GODOT`，不在仓库硬编码个人路径。
-
-核心门槛：
-
-- `build_chapter11.ps1 -Stage generate -MapId both`
-- `build_chapter11.ps1 -Stage assemble -MapId both`
-- `build_chapter11.ps1 -Stage bake -MapId both`
-- `build_chapter11.ps1 -Stage verify -MapId both`
-- `test_map_lifecycle.gd`
-- `test_chapter11_contract.gd`
-- `test_chapter12_contract.gd`
-- `test_chapter13_contract.gd`
-
-最终 Release 前再执行一次从 generate 到 export 的完整链，不能只用中途产物拼接“最终验收”。
+EditorPlugin 真烘焙本身不能用 headless 单元测试替代；其覆盖集合与状态判定必须由 BuildContract 纯函数测试，真实 editor bake 由 WP8 图形门槛验证。
 
 ---
 
-## 14. 最终验收标准
+## 26. 原有测试不得缩减
 
-### H0 — 构建可信性
+必须继续跑：
 
-PASS 条件：
+- tests/test_map_lifecycle.gd
+- tests/test_chapter11_contract.gd
+- tests/test_chapter12_contract.gd
+- tests/test_chapter13_contract.gd
 
-- 两图 manifest 输入指纹未过期；
-- bake_status=succeeded；
-- expected 非空；
-- actual 非空；
-- missing=0；
-- 当前 scene 重新计算 expected 与 manifest 对齐；
-- 任意 missing 负例可稳定让流程失败。
+不得为了通过 1.3 删除旧断言或调低泄漏/状态机覆盖。
 
-### H1 — authored 数据唯一性
-
-PASS 条件：
-
-- station forecourt 不再重复构建；
-- street authored/final exclusion 精确重复=0；
-- triangle/manifest before-after 有记录；
-- 无新 z-fighting/缺面/烘焙遗漏。
-
-### H2 — 运行时质量合同
-
-PASS 条件：
-
-- Eco/Balanced 在 READY 地图立即完整生效；
-- MapRoot 可选节点与 glow/detail range 实际变化；
-- street occlusion=true；
-- interior occlusion=false；
-- benchmark default/override/restore 全部正确。
-
-### H3 — 生命周期与错误路径
-
-PASS 条件：
-
-- 双图 ×10 往返 active_map_root ≤1；
-- 资源弱引用按现有阈值回收；
-- invalid preflight request 不破坏当前 READY 图；
-- activation failure 仍能回 EMPTY。
-
-### H4 — 摄影/UI
-
-PASS 条件：
-
-- street 1–7 数字键可达；
-- interior 1–4 可达；
-- UI 不展示不可用数字键；
-- 当前版本书签不误标旧版；
-- 旧 revision 书签有提示但仍按 pose validation 决定是否加载；
-- 门户 target anchor 全部在 verify 阶段可证明存在。
-
-### H5 — 视觉
-
-PASS 条件：
-
-- street 七机位 × Eco/Balanced；
-- interior 四机位 × Eco/Balanced；
-- 每张最终 PNG 有同名 JSON；
-- 无明显缺面、世界空洞、双几何闪烁、严重漏光、入口遮挡；
-- chapter1-2 v9 已通过的 gallery_view 不退化。
-
-### H6 — 性能
-
-PASS 条件：
-
-- street expanded_v11 两档各 3 个有效轮次；
-- 有至少一组 occlusion 对照；
-- interior 两档稳态样本；
-- 正式报告明确 renderer、GPU、分辨率、frame cap、occlusion、revision、commit；
-- 工作集/PrivateBytes 使用 Windows 进程采样，不用引擎静态内存冒充。
-
-chapter1-1/1-2 的目标阈值继续作为调查/回归参考；如果真实数据未达标，如实记录并定位，不修改阈值迁就结果。
-
-### H7 — Windows Release
-
-PASS 条件：
-
-- chapter1-3 当前内容重新导出；
-- EXE/PCK 独立目录；
-- 中文+空格路径；
-- 双图门户实际往返；
-- 质量档、书签、F12 正常；
-- 有 export_check + hash；
-- 不提交 build 二进制。
-
-### H8 — 文档与证据
-
-PASS 条件：
-
-- review/handoff/backlog/environment/tools README/root README 与实际结果一致；
-- 没有引用仓库不存在的文件作为唯一证据；
-- 最终工件能追溯到 commit/build_id；
-- 未执行项写 NOT_RUN，不写成 PASS。
+如果旧测试因正确接口迁移需要更新，只改调用方式，不降低语义。
 
 ---
 
-## 15. 风险与回滚
+## 27. 构建入口具体化
 
-### R1 authored 清理触发 lightmap 视觉变化
+build_chapter11.ps1 保持统一入口，并深化以下能力：
 
-处理：
+### 参数
 
-- 修改前保留当前最终截图；
-- 只删除数学上重复的生成调用，不同时进行大规模美术重做；
-- 重烘焙后逐机位对照；
-- 若有视觉差异先定位 duplicate removal / UV2 repack / lightmap，再决定是否需要重新调光。
+保留：
 
-### R2 质量档重应用改变现有 Balanced 观感/性能
+- GodotExe
+- ProjectPath
+- Stage
+- MapId
 
-这是预期会暴露的真实状态差异。
+新增可选：
 
-处理：
+- BuildId（默认优先 NEON_BUILD_ID；为空可尝试 Git short SHA；仍不可得则 local timestamp + 明确 local）
+- ArtifactDir（默认 res://artifacts/build；最终验收传 res://artifacts/chapter1_3）
 
-- 不为了维持旧数字把 map quality 再关闭；
-- 重新截图和性能采样；
-- 如果 Balanced 新启用的 particles/probes/lights 无明显画面价值且成本高，应回到 `data/quality/balanced.json` 做证据驱动调整，而不是让运行时代码偷偷不应用配置。
+### validate
 
-### R3 occlusion=false 后室内性能变化
+除现有检查外：
 
-室内定义本来就声明 false，因此修复后才是设计真实值。
+- Godot 4.7.2；
+- registry 可解析；
+- 两 quality JSON 可解析；
+- Noto Sans SC source 存在；
+- build contract helper 可加载；
+- export preset 存在；
+- MapId 与 registry 一致。
 
-必须重新采样，不使用旧“可能实际为 true”的数据作为新结论。
+### generate
 
-### R4 证据目录增大
+street：
 
-只保留最终 PNG+JSON、summary CSV/JSON、必要 bake reports 和简短 review；临时 verbose log、录屏、build 二进制继续忽略。
+- textures
+- import
+- signs
+- import
+- authored ownership prehash
+- build_m01
+- authored ownership posthash + assert unchanged
+- build_authored
+- import
+
+interior：
+
+- build_interior
+- import
+
+### assemble
+
+- 调对应 assemble；
+- import；
+- 不主动 bake。
+
+### bake
+
+- 为每 map 调 editor plugin；
+- 要求 NEON_BAKE_EXIT；
+- 非零即停；
+- report 放 ArtifactDir。
+
+### verify
+
+- verify_build（registry/指定 map）
+- lifecycle
+- ch11
+- ch12
+- ch13
+
+### export
+
+只有 verify 已单独通过并不代表当前命令调用一定执行过 verify；因此 Stage=export 仍至少跑轻量 pre-export verify_build，避免导出 stale bake。
+
+Stage=all 继续严格顺序。
 
 ---
 
-## 16. 完成后仓库应呈现的状态
+## 28. 最终命令矩阵
 
-chapter1-3 完成时，仓库应具备以下性质：
+以下命令是实施完成后的目标入口，实际 $G 路径按环境传入。
 
-1. 两张地图仍严格单活动，不增加常驻场景负担；
-2. 构建脚本不会重复生成已知 authored 区域；
-3. Lightmap 漏覆盖无法被“成功”状态掩盖；
-4. Eco/Balanced 的每一个声明项都真的作用于当前地图；
-5. 每张地图自己的 occlusion 决策能真实生效；
-6. benchmark 不污染运行时状态；
-7. 第 7 个街区机位真实可用；
-8. 书签 revision 提示不绑定历史常量；
-9. 无效请求不会把仍在运行的地图 UI/相机清空；
-10. portal 目标图与目标锚点在构建验收阶段就能证明有效；
-11. street 重建、双图截图、性能、Release、人工门户巡走都有可复核证据；
-12. 文档不再同时存在“模板未安装”“已经导出成功”“最终 log 不在仓库”等互相冲突的状态描述；
-13. 不引入新的平行架构、死代码或为未来功能提前搭空框架。
+构建：
 
-完成这些后，再进入下一张地图或摄影工作台，会比现在继续堆内容更稳妥。
+PowerShell: .\tools\build_chapter11.ps1 -GodotExe $G -ProjectPath . -Stage all -MapId both -BuildId <id> -ArtifactDir res://artifacts/chapter1_3
+
+只验证：
+
+Godot: --headless --path . --script res://tools/verify_build.gd
+
+测试：
+
+Godot: --headless --path . --script res://tests/test_map_lifecycle.gd  
+Godot: --headless --path . --script res://tests/test_chapter11_contract.gd  
+Godot: --headless --path . --script res://tests/test_chapter12_contract.gd  
+Godot: --headless --path . --script res://tests/test_chapter13_contract.gd
+
+截图：
+
+Godot window: --path . -- --shoot --map m01_afterglow --quality both  
+Godot window: --path . -- --shoot --map m01_repair_interior --quality both
+
+性能：
+
+Godot window: --path . -- --perf --map m01_afterglow --route expanded_v11 --quality both --runs 3 --warmup 15  
+Godot window: --path . -- --perf --map m01_repair_interior --route interior_v13 --quality both --runs 3 --warmup 15
+
+occlusion 对照：
+
+street route + --occlusion off  
+interior route + --occlusion on
+
+所有自动化失败必须非零退出。
+
+---
+
+## 29. 最终验收门槛 H0–H10
+
+### H0 — 仓库与构建输入
+
+PASS：
+
+- clean checkout 可 import；
+- 生产 registry 两图有效；
+- BuildContract 能完整计算；
+- no-op hash 稳定。
+
+### H1 — Bake 状态机
+
+PASS：
+
+- assemble 不产生“空 data + succeeded”；
+- bake 开始前磁盘 manifest 已 running；
+- failed 不保留 succeeded；
+- 成功时 expected 非空、actual 非空、missing=0；
+- scene save、manifest、report 写失败不能成功。
+
+### H2 — Authored 唯一性
+
+PASS：
+
+- station forecourt 静态生成一次；
+- authored exclusion 精确重复=0；
+- SC_ANNEX 只有一个权威 exclusion；
+- build_m01 不修改 authored ownership；
+- street r1.3.0 重烘成功。
+
+### H3 — Verify 纯度
+
+PASS：
+
+- verify 前后 Git tracked files hash 不变；
+- verify 不创建/更新 baseline；
+- stale/missing/坏 portal 都能非零失败。
+
+### H4 — Runtime quality
+
+PASS：
+
+- Eco/Balanced 完整生效；
+- street occlusion true；
+- interior false；
+- map switch 与 quality switch 不覆盖地图默认；
+- effective_state 是实际状态。
+
+### H5 — 生命周期/错误路径
+
+PASS：
+
+- 双图 ×10 active_map_root ≤1；
+- 资源弱引用回收；
+- timeout orphan 可收尾；
+- preflight fail 保留 READY 图；
+- activation fail 回 EMPTY；
+- capture abort 不锁死 guard。
+
+### H6 — 摄影/UI
+
+PASS：
+
+- street 1–7；
+- interior 1–4；
+- UI 数字提示真实；
+- capture_anchor contract 生效；
+- current bookmark 不误标，旧 revision 有提示；
+- 所有 final PNG 与 JSON 一一对应。
+
+### H7 — Benchmark 正确性
+
+PASS：
+
+- route/map 强校验；
+- measured state 在 restore 前冻结；
+- headroom 完整恢复；
+- settings.cfg 前后不变；
+- warmup 没有双重计时；
+- run output build_id/revision/profile/occlusion 正确。
+
+### H8 — 性能数据
+
+PASS：
+
+- street expanded_v11 Eco/Balanced 各 3 valid；
+- interior_v13 Eco/Balanced 各 3 valid；
+- occlusion 对照单列；
+- 至少四组代表性 Windows 进程采样；
+- 不使用截图瞬时 FPS 当稳态结论。
+
+### H9 — Windows Release
+
+PASS：
+
+- 当前 1.3 全管线后导出；
+- 中文+空格独立路径；
+- 双图门户至少 3 往返；
+- 楼梯/锚点/quality/bookmark/F12 正常；
+- export_check 有 hash 与结果。
+
+### H10 — 文档与证据
+
+PASS：
+
+- final artifacts 可追溯同 build_id；
+- README/handoff/backlog/environment/tools README/asset_sources 与实际一致；
+- 不再把不存在的 *.log 作为唯一证据；
+- NOT_RUN 如实保留，绝不伪写 PASS。
+
+---
+
+## 30. 文件级变更清单
+
+### 新增
+
+- tools/build_contract.gd
+- tests/test_chapter13_contract.gd
+- docs/chapter1_3/review.md（最终验收时）
+- artifacts/chapter1_3/ 下结构化结果
+
+### 修改
+
+- addons/neon_bake/bake_plugin.gd
+- tools/assemble_m01.gd
+- tools/assemble_interior.gd
+- tools/build_authored.gd
+- tools/verify_build.gd
+- tools/build_chapter11.ps1
+- scripts/app/settings_manager.gd
+- scripts/app/main.gd
+- scripts/app/camera_controller.gd
+- scripts/app/tool_ui.gd
+- scripts/app/capture_service.gd
+- scripts/maps/map_definition.gd
+- scripts/maps/map_manager.gd
+- scripts/maps/map_root.gd
+- scripts/diagnostics/benchmark_runner.gd
+- scripts/diagnostics/perf_routes.gd
+- 受上述生成器影响的 map_definition / map / authored / manifest / baked 产物
+- README.md
+- tools/README.md
+- docs/handoff.md
+- docs/backlog.md
+- docs/environment.md
+- docs/asset_sources.md
+- 必要时 AGENTS.md 只修事实
+
+### 条件删除
+
+- maps/m01_afterglow/map_lightmap.res
+- maps/m01_afterglow/map_lightmap.exr
+- maps/m01_afterglow/map_lightmap.exr.import
+- maps/m01_afterglow/meshes/authored_props_mesh.res
+- maps/m01_afterglow/authored/authored_input_hash.baseline
+- tools/bake_m01.gd
+- tools/bake_m01.gd.uid
+- tools/run_bake.tscn
+- tools/finalize_bake_manifest.gd
+- tools/finalize_bake_manifest.gd.uid
+
+删除必须满足 §18.2 的引用与依赖门槛。
+
+---
+
+## 31. 风险与回滚
+
+### R1 — manifest v2 首次强制重烘
+
+这是预期迁移成本。不能为了省一次 bake 继承 v1 succeeded。
+
+### R2 — authored 去重改变 lightmap packing
+
+只做已确认重复清理，不同时进行大规模美术重做。用 chapter1-2 最终截图作视觉对照。
+
+### R3 — Balanced 真正完整生效后性能/观感变化
+
+若新启用的 particle/probe/fill light 成本不值得，应修改 data/quality/balanced.json，而不是让运行时代码偷偷不应用配置。
+
+### R4 — interior occlusion=false 后数据与旧报告不同
+
+新数据才是定义真实状态。旧数据作为历史，不冒充 1.3。
+
+### R5 — dead asset 删除误伤
+
+严格执行引用搜索 + ResourceLoader dependencies + clean import + verify；任一不确定先保留。
+
+### R6 — BuildContract 过度敏感导致无谓 rebake
+
+先保证“不漏变化”，再通过负例/no-op 测试缩小非语义噪声。不能为了减少 bake 把真实材质/纹理依赖排除。
+
+---
+
+## 32. 完成状态定义
+
+Chapter 1.3 只有同时满足以下条件才算完成：
+
+1. 两张地图仍严格单活动；
+2. 构建和烘焙只有一套生产权威；
+3. manifest v2 能证明 bake 输入与真实数据一致；
+4. verify 完全只读；
+5. authored 重复几何/exclusion 已清；
+6. Eco/Balanced 与地图 occlusion 真实生效；
+7. Benchmark 报告记录的是测量期而非恢复后状态；
+8. automation 不会永久等待或静默跳过失败；
+9. street 7 / interior 4 锚点用户接口真实；
+10. capture anchors、portal target、bookmark revision 都有明确合同；
+11. timeout orphan、capture abort 等失败路径不会留下永久 busy；
+12. 旧烘焙脚本/旧 lightmap/死 mesh 在确认无引用后清理；
+13. 最终 26 PNG + 26 JSON、双图性能、进程采样、Windows Release、人工门户巡走都有证据；
+14. 文档与仓库当前事实一致；
+15. 没有为了本章新增未来功能空框架。
+
+完成本章后，项目才适合继续增加下一张地图或进入摄影工作台阶段。
